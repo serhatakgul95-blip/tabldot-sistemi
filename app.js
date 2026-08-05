@@ -44,6 +44,7 @@ const seed = {
 let db = loadDB();
 let currentUser = null;
 let currentPage = 'dashboard';
+let leaveCalendarCursor = new Date(2026, 7, 1);
 
 const roleNames = { admin: 'Admin', manager: 'Müdür', staff: 'Personel' };
 const navByRole = {
@@ -252,7 +253,7 @@ function renderMembers() {
       ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Telefon</th><th>Görev</th><th>İşlem</th></tr></thead><tbody>${pending.map(u => `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${u.phone}</td><td>${escapeHtml(u.title)}</td><td><button class="btn btn-success btn-sm" onclick="approveMember(${u.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectMember(${u.id})">Reddet</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Onay bekleyen üyelik bulunmuyor.</div>'}
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Aktif personeller</h3><p>Rol ve izin bakiyesi bilgileri</p></div><button class="btn btn-primary btn-sm" onclick="newMemberModal()">Personel Ekle</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Kalan izin</th><th>Durum</th></tr></thead><tbody>${active.map(u => `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${u.phone}</td><td>${roleNames[u.role]}</td><td>${escapeHtml(u.title)}</td><td>${u.annualAllowance-u.usedLeave} gün</td><td>${statusBadge('approved')}</td></tr>`).join('')}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Ad soyad</th><th>Telefon</th><th>Rol</th><th>Görev</th><th>Kalan izin</th><th>Durum</th></tr></thead><tbody>${active.map(u => `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td><td>${u.phone}</td><td>${roleNames[u.role]}</td><td>${escapeHtml(u.title)}</td><td>${u.annualAllowance-u.usedLeave} gün</td><td>${statusBadge('approved')}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
 }
 function approveMember(id) { const u=getUser(id); if(u){u.approved=true;saveDB();renderMembers();toast('Üyelik onaylandı.');} }
@@ -266,26 +267,60 @@ function newMemberModal() {
   document.getElementById('newMemberForm').addEventListener('submit', e => { e.preventDefault(); const f=new FormData(e.target); db.users.push({id:Date.now(),name:f.get('name'),phone:normalizePhone(f.get('phone')),title:f.get('title'),role:f.get('role'),password:f.get('password'),approved:true,annualAllowance:Number(f.get('annualAllowance')),usedLeave:0});saveDB();closeModal();renderMembers();toast('Personel eklendi.'); });
 }
 
+function mealChoice(name, value, selected) {
+  const labels = {
+    yes: ['Yiyeceğim', 'Yemek hesabına dahil edilir'],
+    no: ['Yemeyeceğim', 'Yemek ayrılmaz'],
+    duty: ['Görevdeyim / Ayır', 'Görevde olsanız da yemek ayrılır']
+  };
+  const [title, detail] = labels[value];
+  return `<label class="meal-option ${selected===value?'selected':''}"><input type="radio" name="${name}" value="${value}" ${selected===value?'checked':''}><span><strong>${title}</strong><small>${detail}</small></span></label>`;
+}
+function mealStatusSummary(data) {
+  let reserved=0, duty=0, notEating=0;
+  Object.values(data).forEach(day=>Object.values(day).forEach(status=>{
+    if(status==='yes') reserved++;
+    else if(status==='duty'){ reserved++; duty++; }
+    else notEating++;
+  }));
+  return { reserved, duty, notEating };
+}
 function renderMeals() {
   const weekDays = ['Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi','Pazar'];
   const key = `2026-W32-${currentUser.id}`;
   const selection = db.mealSelections[key] || Object.fromEntries(weekDays.map(d => [d,{breakfast:'yes',lunch:'yes',dinner:'yes'}]));
+  const totals = mealStatusSummary(selection);
   if (currentUser.role === 'staff') {
     document.getElementById('pageContent').innerHTML = `
-      <div class="summary-strip"><div><strong>4–10 Ağustos 2026 haftası</strong><div class="form-note">Son değişiklik zamanı: ${db.settings.mealDeadline}</div></div><div><strong>Toplam seçiminiz: 21 öğün</strong></div></div>
-      <div class="card section-gap"><div class="card-header"><div><h3>Haftalık yemek tercihi</h3><p>Her öğün için katılım durumunuzu seçin</p></div></div><div class="card-body">
+      <div class="summary-strip"><div><strong>4–10 Ağustos 2026 haftası</strong><div class="form-note">Son değişiklik zamanı: ${db.settings.mealDeadline}</div></div><div><strong>Ayrılacak öğün: ${totals.reserved}</strong><div class="form-note">Görevde ayrılacak: ${totals.duty} öğün</div></div></div>
+      <div class="card section-gap"><div class="card-header"><div><h3>Haftalık yemek tercihi</h3><p>Her öğün için durumunuzu seçin. “Görevdeyim / Ayır” seçimi ücret hesabına dahil edilir.</p></div></div><div class="card-body">
         <form id="mealForm"><div class="meal-grid">
           <div class="head">Gün</div><div class="head">Kahvaltı</div><div class="head">Öğle</div><div class="head">Akşam</div>
-          ${weekDays.map(d => `<div><strong>${d}</strong></div>${['breakfast','lunch','dinner'].map(m => `<div class="choice"><label><input type="radio" name="${d}-${m}" value="yes" ${selection[d][m]==='yes'?'checked':''}> Yiyeceğim</label><label><input type="radio" name="${d}-${m}" value="no" ${selection[d][m]==='no'?'checked':''}> Yemeyeceğim</label></div>`).join('')}`).join('')}
+          ${weekDays.map(d => `<div><strong>${d}</strong></div>${['breakfast','lunch','dinner'].map(m => `<div class="choice">${mealChoice(`${d}-${m}`,'yes',selection[d][m])}${mealChoice(`${d}-${m}`,'no',selection[d][m])}${mealChoice(`${d}-${m}`,'duty',selection[d][m])}</div>`).join('')}`).join('')}
         </div><button class="btn btn-primary section-gap" type="submit">Tercihleri Kaydet</button></form>
       </div></div>`;
-    document.getElementById('mealForm').addEventListener('submit', e => { e.preventDefault(); const data={}; weekDays.forEach(d=>{data[d]={};['breakfast','lunch','dinner'].forEach(m=>data[d][m]=new FormData(e.target).get(`${d}-${m}`));});db.mealSelections[key]=data;saveDB();toast('Yemek tercihleriniz kaydedildi.'); });
+    document.querySelectorAll('.meal-option input').forEach(input=>input.addEventListener('change',()=>{
+      document.querySelectorAll(`input[name="${CSS.escape(input.name)}"]`).forEach(x=>x.closest('.meal-option').classList.toggle('selected',x.checked));
+    }));
+    document.getElementById('mealForm').addEventListener('submit', e => { e.preventDefault(); const data={}; const f=new FormData(e.target); weekDays.forEach(d=>{data[d]={};['breakfast','lunch','dinner'].forEach(m=>data[d][m]=f.get(`${d}-${m}`));});db.mealSelections[key]=data;saveDB();renderMeals();toast('Yemek tercihleriniz kaydedildi.'); });
   } else {
     const names = db.users.filter(u=>u.approved && u.role==='staff');
+    const shortDays=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+    const statusCell=(u,d)=>{
+      const data=db.mealSelections[`2026-W32-${u.id}`] || Object.fromEntries(weekDays.map(day=>[day,{breakfast:'yes',lunch:'yes',dinner:'yes'}]));
+      const vals=Object.values(data[weekDays[d]]||{});
+      const regular=vals.filter(v=>v==='yes').length, duty=vals.filter(v=>v==='duty').length;
+      const total=regular+duty;
+      return `<span class="meal-count">${total}</span>${duty?`<small class="duty-count">+${duty} görev</small>`:''}`;
+    };
+    const weekReserved=names.reduce((sum,u)=>{
+      const data=db.mealSelections[`2026-W32-${u.id}`] || Object.fromEntries(weekDays.map(day=>[day,{breakfast:'yes',lunch:'yes',dinner:'yes'}]));
+      return sum+mealStatusSummary(data).reserved;
+    },0);
     document.getElementById('pageContent').innerHTML = `
-      <div class="grid grid-4">${metric('🍽','Haftalık katılım','29 kişi','35 personelden')}${metric('⏳','Tercih yapmayan','6 kişi','Hatırlatma gönderilebilir')}${metric('🧾','Toplam gider',money(db.expenses.reduce((s,x)=>s+x.amount,0)),'Ağustos dönemi')}${metric('📌','Kişi/gün maliyeti','52,40 TL','Otomatik hesaplama')}</div>
-      <div class="card section-gap"><div class="card-header"><div><h3>Personel yemek durumu</h3><p>4–10 Ağustos haftası</p></div><button class="btn btn-primary btn-sm" onclick="expenseModal()">Gider Ekle</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Personel</th><th>Pzt</th><th>Sal</th><th>Çar</th><th>Per</th><th>Cum</th><th>Cmt</th><th>Paz</th><th>Toplam</th></tr></thead><tbody>${names.map((u,i)=>`<tr><td><strong>${escapeHtml(u.name)}</strong></td>${[0,1,2,3,4,5,6].map((_,d)=>`<td>${(i+d)%5===0?'—':'3'}</td>`).join('')}<td><strong>${18+(i%4)}</strong></td></tr>`).join('')}</tbody></table></div></div>
+      <div class="grid grid-4">${metric('🍽','Ayrılacak toplam öğün',weekReserved,'Görevde ayrılanlar dahil')}${metric('👥','Kayıtlı personel',names.length+' kişi','Haftalık seçim ekranı')}${metric('🧾','Toplam gider',money(db.expenses.reduce((s,x)=>s+x.amount,0)),'Ağustos dönemi')}${metric('📌','Görev seçimi','Ücrete dahil','Yemek ayrıca ayrılır')}</div>
+      <div class="card section-gap"><div class="card-header"><div><h3>Personel yemek durumu</h3><p>4–10 Ağustos haftası · sayı öğün adedini gösterir</p></div><button class="btn btn-primary btn-sm" onclick="expenseModal()">Gider Ekle</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Personel</th>${shortDays.map(x=>`<th>${x}</th>`).join('')}<th>Toplam</th></tr></thead><tbody>${names.map(u=>{const data=db.mealSelections[`2026-W32-${u.id}`] || Object.fromEntries(weekDays.map(day=>[day,{breakfast:'yes',lunch:'yes',dinner:'yes'}]));const t=mealStatusSummary(data);return `<tr><td><button class="person-link" onclick="openPersonnelLeaves(${u.id})">${escapeHtml(u.name)}</button></td>${[0,1,2,3,4,5,6].map(d=>`<td>${statusCell(u,d)}</td>`).join('')}<td><strong>${t.reserved}</strong>${t.duty?`<small class="duty-count">${t.duty} görev</small>`:''}</td></tr>`}).join('')}</tbody></table></div></div>
       <div class="card section-gap"><div class="card-header"><div><h3>Gider kayıtları</h3><p>Bu döneme ait harcamalar</p></div></div><div class="table-wrap"><table><thead><tr><th>Tarih</th><th>Açıklama</th><th>Tutar</th></tr></thead><tbody>${db.expenses.map(x=>`<tr><td>${formatDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td><strong>${money(x.amount)}</strong></td></tr>`).join('')}</tbody></table></div></div>`;
   }
 }
@@ -310,26 +345,57 @@ function copyIban() { navigator.clipboard?.writeText(db.settings.iban); toast('I
 function paymentModal() { showModal('Ödeme Bildir', `<form id="paymentForm" class="form-grid"><label>Dönem<select name="period"><option>Ağustos 2026</option></select></label><label>Tutar<input name="amount" type="number" required></label><label>Ödeme tarihi<input name="date" type="date" value="2026-08-06" required></label><label>Dekont<input name="receipt" type="file" accept="image/*,.pdf"></label><div class="span-2"><button class="btn btn-primary btn-block">Bildirimi Gönder</button></div></form>`); document.getElementById('paymentForm').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);db.payments.push({id:Date.now(),userId:currentUser.id,period:f.get('period'),amount:Number(f.get('amount')),date:f.get('date'),status:'pending'});saveDB();closeModal();toast('Ödeme bildiriminiz onaya gönderildi.');}); }
 function approvePayment(id) { const p=db.payments.find(x=>x.id===id);if(!p)return;p.status='approved';const d=db.debts.find(x=>x.userId===p.userId&&x.period===p.period);if(d)d.paid=Math.min(d.amount,d.paid+p.amount);saveDB();renderFinance();toast('Ödeme onaylandı.'); }
 
+function monthTitle(year, month) {
+  return new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(year,month,1));
+}
+function changeLeaveMonth(delta) {
+  leaveCalendarCursor = new Date(leaveCalendarCursor.getFullYear(), leaveCalendarCursor.getMonth()+delta, 1);
+  renderLeaves();
+}
+function goCurrentLeaveMonth() {
+  const now=new Date(); leaveCalendarCursor=new Date(now.getFullYear(),now.getMonth(),1); renderLeaves();
+}
+function openPersonnelLeaves(userId) {
+  if (!currentUser || !['admin','manager'].includes(currentUser.role)) return;
+  const user=getUser(userId); if(!user) return;
+  const records=db.leaveRequests.filter(x=>x.userId===userId).sort((a,b)=>b.start.localeCompare(a.start));
+  const approvedAnnual=records.filter(x=>x.status==='approved'&&x.type==='Yıllık İzin').reduce((s,x)=>s+x.days,0);
+  const pendingAnnual=records.filter(x=>x.status==='pending'&&x.type==='Yıllık İzin').reduce((s,x)=>s+x.days,0);
+  const remaining=Math.max(0,user.annualAllowance-user.usedLeave-approvedAnnual);
+  showModal(`${user.name} · İzin Bilgileri`, `
+    <div class="grid grid-4 compact-metrics">
+      ${metric('📅','Yıllık hak',user.annualAllowance+' gün','Tanımlı hak')}
+      ${metric('✅','Kullanılan',user.usedLeave+' gün','Kesinleşen kullanım')}
+      ${metric('🗓','Onaylı plan',approvedAnnual+' gün','Gelecek izinler')}
+      ${metric('⏳','Kalan',remaining+' gün',pendingAnnual+' gün talep bekliyor')}
+    </div>
+    <div class="section-gap"><h3>Tüm izin kayıtları</h3>${records.length?leaveTable(records,false,true):'<div class="empty">Bu personele ait izin kaydı bulunmuyor.</div>'}</div>`);
+}
 function renderLeaves() {
   if (currentUser.role === 'staff') {
     const own = db.leaveRequests.filter(x=>x.userId===currentUser.id);
-    const remaining = currentUser.annualAllowance-currentUser.usedLeave-own.filter(x=>x.status==='approved').reduce((s,x)=>s+x.days,0);
+    const remaining = currentUser.annualAllowance-currentUser.usedLeave-own.filter(x=>x.status==='approved'&&x.type==='Yıllık İzin').reduce((s,x)=>s+x.days,0);
     document.getElementById('pageContent').innerHTML = `
-      <div class="grid grid-3">${metric('📅','Yıllık izin hakkı',currentUser.annualAllowance+' gün','2026 yılı')}${metric('✅','Kullanılan izin',currentUser.usedLeave+' gün','Kesinleşen kullanım')}${metric('⏳','Kullanılabilir izin',remaining+' gün','Onaylı gelecek izinler düşülmüştür')}</div>
+      <div class="grid grid-3">${metric('📅','Yıllık izin hakkı',currentUser.annualAllowance+' gün','2026 yılı')}${metric('✅','Kullanılan izin',currentUser.usedLeave+' gün','Kesinleşen kullanım')}${metric('⏳','Kullanılabilir izin',remaining+' gün','Onaylı gelecek yıllık izinler düşülmüştür')}</div>
       <div class="card section-gap"><div class="card-header"><div><h3>İzin taleplerim</h3><p>Talep ve onay durumları</p></div><button class="btn btn-primary btn-sm" onclick="leaveModal()">Yeni İzin Talebi</button></div>${own.length?leaveTable(own,false):'<div class="empty">Henüz izin talebiniz bulunmuyor.</div>'}</div>`;
   } else {
+    const year=leaveCalendarCursor.getFullYear(), month=leaveCalendarCursor.getMonth();
+    const monthStart=`${year}-${String(month+1).padStart(2,'0')}-01`;
+    const monthEnd=`${year}-${String(month+1).padStart(2,'0')}-${String(new Date(year,month+1,0).getDate()).padStart(2,'0')}`;
+    const monthly=db.leaveRequests.filter(x=>x.start<=monthEnd&&x.end>=monthStart).sort((a,b)=>a.start.localeCompare(b.start));
     document.getElementById('pageContent').innerHTML = `
-      <div class="grid grid-4">${metric('📅','Toplam izin kaydı',db.leaveRequests.length,'2026 yılı')}${metric('⏳','Onay bekleyen',db.leaveRequests.filter(x=>x.status==='pending').length,'Değerlendirme gerekli')}${metric('✅','Onaylanan',db.leaveRequests.filter(x=>x.status==='approved').length,'Planlanan izinler')}${metric('👥','Bugün izinli','2 kişi','Birimde 33 kişi')}</div>
-      <div class="card section-gap"><div class="card-header"><div><h3>Ağustos 2026 izin takvimi</h3><p>Onaylanan, bekleyen ve sağlık izinleri</p></div><div class="legend"><span><i style="background:#dcfce7"></i>Onaylı</span><span><i style="background:#fef3c7"></i>Bekleyen</span><span><i style="background:#fee2e2"></i>Sağlık</span></div></div><div class="card-body">${calendarHtml(2026,7)}</div></div>
-      <div class="card section-gap"><div class="card-header"><div><h3>İzin talepleri</h3><p>Personel bazlı talep listesi</p></div><button class="btn btn-secondary btn-sm" onclick="leaveModal(true)">Yönetici Kaydı Ekle</button></div>${leaveTable(db.leaveRequests,true)}</div>`;
+      <div class="grid grid-4">${metric('📅','Toplam izin kaydı',db.leaveRequests.length,'Tüm dönemler')}${metric('⏳','Onay bekleyen',db.leaveRequests.filter(x=>x.status==='pending').length,'Değerlendirme gerekli')}${metric('✅','Onaylanan',db.leaveRequests.filter(x=>x.status==='approved').length,'Planlanan izinler')}${metric('👥',monthTitle(year,month)+' izinli',new Set(monthly.map(x=>x.userId)).size+' kişi','Ay içinde izin kaydı bulunan')}</div>
+      <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>${monthTitle(year,month)} izin takvimi</h3><p>Önceki ve gelecek aylar arasında geçiş yapabilirsiniz</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeLeaveMonth(-1)">‹ Önceki Ay</button><button class="btn btn-secondary btn-sm" onclick="goCurrentLeaveMonth()">Bu Ay</button><button class="btn btn-primary btn-sm" onclick="changeLeaveMonth(1)">Sonraki Ay ›</button></div></div><div class="card-body">${calendarHtml(year,month)}</div></div>
+      <div class="card section-gap"><div class="card-header"><div><h3>${monthTitle(year,month)} izinli personel listesi</h3><p>Gösterilen ayla kesişen tüm izinler</p></div><button class="btn btn-secondary btn-sm" onclick="leaveModal(true)">Yönetici Kaydı Ekle</button></div>${monthly.length?leaveTable(monthly,true):'<div class="empty">Bu ay için izin kaydı bulunmuyor.</div>'}</div>
+      <div class="card section-gap"><div class="card-header"><div><h3>Tüm izin talepleri</h3><p>Personel adına tıklayarak bütün izin geçmişini açabilirsiniz</p></div></div>${leaveTable(db.leaveRequests,true)}</div>`;
   }
 }
-function leaveTable(items, actions) { return `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Gün</th><th>Şehir</th><th>Durum</th>${actions?'<th>İşlem</th>':''}</tr></thead><tbody>${items.map(x=>`<tr><td><strong>${escapeHtml(getUser(x.userId)?.name||'-')}</strong></td><td>${escapeHtml(x.type)}</td><td>${formatDate(x.start)}</td><td>${formatDate(x.end)}</td><td>${x.days}</td><td>${escapeHtml(x.city||'-')}</td><td>${statusBadge(x.status)}</td>${actions?`<td>${x.status==='pending'?`<button class="btn btn-success btn-sm" onclick="approveLeave(${x.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeave(${x.id})">Reddet</button>`:'—'}</td>`:''}</tr>`).join('')}</tbody></table></div>`; }
+function leaveTable(items, actions, compact=false) { return `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Gün</th>${compact?'':'<th>Şehir</th>'}<th>Durum</th>${actions?'<th>İşlem</th>':''}</tr></thead><tbody>${items.map(x=>`<tr><td>${currentUser&&['admin','manager'].includes(currentUser.role)?`<button class="person-link" onclick="openPersonnelLeaves(${x.userId})">${escapeHtml(getUser(x.userId)?.name||'-')}</button>`:`<strong>${escapeHtml(getUser(x.userId)?.name||'-')}</strong>`}</td><td>${escapeHtml(x.type)}</td><td>${formatDate(x.start)}</td><td>${formatDate(x.end)}</td><td>${x.days}</td>${compact?'':`<td>${escapeHtml(x.city||'-')}</td>`}<td>${statusBadge(x.status)}</td>${actions?`<td>${x.status==='pending'?`<button class="btn btn-success btn-sm" onclick="approveLeave(${x.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeave(${x.id})">Reddet</button>`:'—'}</td>`:''}</tr>`).join('')}</tbody></table></div>`; }
 function calendarHtml(year, month) {
   const first = new Date(year, month, 1); const last = new Date(year, month+1,0); const mondayIndex=(first.getDay()+6)%7; const total=Math.ceil((mondayIndex+last.getDate())/7)*7;
   const heads=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'].map(x=>`<div class="calendar-head">${x}</div>`).join('');
   let days='';
-  for(let i=0;i<total;i++){const day=i-mondayIndex+1;if(day<1||day>last.getDate()){days+=`<div class="calendar-day muted"></div>`;continue;}const date=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;const events=db.leaveRequests.filter(x=>date>=x.start&&date<=x.end);days+=`<div class="calendar-day"><div class="day-num">${day}</div>${events.map(e=>`<div class="calendar-event ${e.status}">${escapeHtml(getUser(e.userId)?.name||'-')}</div>`).join('')}</div>`;}
+  for(let i=0;i<total;i++){const day=i-mondayIndex+1;if(day<1||day>last.getDate()){days+=`<div class="calendar-day muted"></div>`;continue;}const date=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;const events=db.leaveRequests.filter(x=>date>=x.start&&date<=x.end);days+=`<div class="calendar-day"><div class="day-num">${day}</div>${events.map(e=>`<button class="calendar-event ${e.status}" onclick="openPersonnelLeaves(${e.userId})">${escapeHtml(getUser(e.userId)?.name||'-')}</button>`).join('')}</div>`;}
   return `<div class="calendar">${heads}${days}</div>`;
 }
 function leaveModal(asAdmin=false) {
