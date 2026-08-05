@@ -235,3 +235,54 @@ tbody tr:hover { background: #f8fafc; }
   .top-actions .icon-btn { display: none; }
   .summary-strip { flex-direction: column; }
 }
+
+/* V2: yemek durumları, personel izin ayrıntısı ve takvim gezinmesi */
+.person-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #0f5bd8;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.person-link:hover { text-decoration: underline; }
+.choice { display: flex; flex-direction: column; gap: 7px; }
+.meal-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.meal-option:hover { border-color: #94a3b8; }
+.meal-option.selected { border-color: #2563eb; background: #eff6ff; }
+.meal-option input { margin-top: 2px; }
+.meal-option span { display: flex; flex-direction: column; gap: 3px; }
+.meal-option strong { font-size: 11px; }
+.meal-option small { color: var(--muted); font-size: 9px; }
+.meal-count { display: block; font-weight: 800; }
+.duty-count { display: block; color: #9a3412; font-size: 9px; margin-top: 3px; }
+.calendar-toolbar { gap: 16px; flex-wrap: wrap; }
+.calendar-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.calendar-event {
+  display: block;
+  width: 100%;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.calendar-event:hover { filter: brightness(.97); }
+.compact-metrics .metric-card { min-height: 110px; }
+
+@media (max-width: 760px) {
+  .calendar-actions { width: 100%; justify-content: stretch; }
+  .calendar-actions .btn { flex: 1; }
+  .meal-option { min-width: 130px; }
+}
