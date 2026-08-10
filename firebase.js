@@ -259,7 +259,7 @@ function stateToMaps(state) {
   const mealMap = new Map();
   Object.entries(state.mealSelections || {}).forEach(([userId, dates]) => {
     Object.entries(dates || {}).forEach(([dateValue, choice]) => {
-      mealMap.set(`${userId}_${dateValue}`, clean({ userId: Number(userId), date: dateValue, ...choice }));
+      mealMap.set(`${userId}_${dateValue}`, clean({ userId: Number(userId), date: dateValue, breakfast: choice?.breakfast || '', dinner: choice?.dinner || '' }));
     });
   });
   maps.mealChoices = mealMap;
@@ -343,9 +343,9 @@ async function loadState(updateSnapshot = true) {
   ]);
 
   state.users = users.map(x => ({ ...x, uid: x.uid || x._docId })).map(({ _docId, ...x }) => x);
-  meals.forEach(({ _docId, userId, date, breakfast = '', lunch = '', dinner = '' }) => {
+  meals.forEach(({ _docId, userId, date, breakfast = '', dinner = '' }) => {
     state.mealSelections[userId] ||= {};
-    state.mealSelections[userId][date] = { breakfast, lunch, dinner };
+    state.mealSelections[userId][date] = { breakfast, dinner };
   });
   const strip = arr => arr.map(({ _docId, ...x }) => x);
   state.expenses = strip(expenses);

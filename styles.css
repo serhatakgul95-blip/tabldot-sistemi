@@ -487,6 +487,8 @@ tbody tr:hover { background: #f8fafc; }
 .attendance-toolbar input[type=date]{min-height:36px;border-radius:9px;border:1px solid rgba(255,255,255,.2);padding:0 10px;background:#fff;color:#0f172a}
 .attendance-badge{display:inline-flex;align-items:center;justify-content:center;min-width:34px;gap:5px;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:800;white-space:nowrap;border:1px solid transparent}
 .att-present{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+.att-work{background:#ecfccb;color:#3f6212;border-color:#d9f99d}
+.att-watch{background:#fef9c3;color:#854d0e;border-color:#fef08a}
 .att-annual_leave,.att-excuse_leave,.att-road_leave{background:#fef3c7;color:#92400e;border-color:#fde68a}
 .att-medical,.att-referral{background:#fee2e2;color:#991b1b;border-color:#fecaca}
 .att-duty,.att-temporary_duty{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}

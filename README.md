@@ -1,4 +1,4 @@
-# PBYS V8 — Personel Bilgi Yönetim Sistemi
+# PBYS V8.4 — Toplu Test Sürümü
 
 Bu test sürümü V6 Firestore altyapısı üzerine toplu kullanıcı geri bildirimlerini uygular.
 
@@ -45,3 +45,26 @@ Depodaki eski dosyaların üzerine şu dosyaları yükleyin:
 Sonra **Commit changes** yapın. GitHub Pages güncellendikten sonra telefonda sayfayı tamamen yenileyin.
 
 > Test modu devam ediyor. Gerçek personel verilerine geçmeden önce Firestore Security Rules rol/yetki modeline göre kilitlenmelidir.
+
+
+## V8.2
+- Karakol Komutanı hesabında Ana Sayfa sabit üstte kalır; ardından Yönetim menüleri, sonra Kişisel İşlemler gelir.
+- Karakol Komutanı ana ekranında yönetim özeti kişisel kartlardan önce gösterilir.
+- Onay bekleyen izin talepleri yetkili kullanıcıların ana ekranında personel adı, izin türü, tarih ve gün bilgisiyle listelenir.
+
+
+## V8.2 değişiklikleri
+- Yıllık izin raporuna kullanılan izin tarihleri eklendi.
+- Onaylanan gelecek izinler artık hemen kullanılmış/kalandan düşmez; gün tamamlandıkça kullanılmış sayılır.
+- İzin başlangıcının ertesi günü ilk gün kullanılmış olarak görünür.
+- İzin durumunda gelecekte Onaylandı, devam ederken İzin Kullanılıyor, bittikten sonra İzin Kullanıldı gösterilir.
+- Müdür rolü kaldırıldı; eski manager kayıtları Personel rolüne dönüştürülür.
+
+
+## V8.3
+- Yemek öğünleri ikiye düşürüldü: Sabah ve Akşam.
+- Öğle öğünü tercih, aşçı, bilanço ve rapor hesaplarından kaldırıldı.
+
+## V8.4 ek güncelleme
+- Yoklama durum seçeneklerine mevcut seçenekler korunarak `Mesai` ve `Nöbetçi` eklendi.
+- Yemek sistemi V8.3'teki gibi yalnızca Sabah ve Akşam olmak üzere 2 öğün üzerinden çalışır.

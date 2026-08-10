@@ -31,20 +31,21 @@ let cookDateCursor = new Date();
 let attendanceDateCursor = new Date();
 let attendanceWeekCursor = startOfWeek(new Date());
 
-const roleNames = { admin: 'Admin', manager: 'Müdür', staff: 'Personel', cook: 'Aşçı', tabldot: 'Tabldot Sorumlusu', administrative: 'İdari İşler', commander: 'Karakol Komutanı' };
+const roleNames = { admin: 'Admin', staff: 'Personel', cook: 'Aşçı', tabldot: 'Tabldot Sorumlusu', administrative: 'İdari İşler', commander: 'Karakol Komutanı' };
 const rolePermissions = {
   staff: [],
   cook: ['kitchen.view'],
   tabldot: ['meal.manage','finance.manage','reports.view'],
   administrative: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','meal.manage','finance.manage','reports.view'],
   commander: ['personnel.view','attendance.view','leave.view','leave.approve','leave.plan','reports.view'],
-  manager: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','leave.approve','leave.plan','meal.manage','finance.manage','reports.view','kitchen.view','laundry.manage'],
   admin: ['*']
 };
-const mealNames = { breakfast: 'Kahvaltı', lunch: 'Öğle', dinner: 'Akşam' };
+const mealNames = { breakfast: 'Sabah', dinner: 'Akşam' };
 const mealStatusNames = { yes: 'Yiyecek (varsayılan)', no: 'Yemeyecek', duty: 'Görevdeyim / Ayır', leave: 'Yıllık izin · Tabldot dışı', '': 'Yiyecek (varsayılan)' };
 const attendanceStatuses = {
   present: { label: 'Mevcut', short: 'M', icon: '✅' },
+  work: { label: 'Mesai', short: 'MS', icon: '🕘' },
+  watch: { label: 'Nöbetçi', short: 'N', icon: '🛡️' },
   annual_leave: { label: 'Yıllık İzin', short: 'İ', icon: '🏖️' },
   excuse_leave: { label: 'Mazeret İzni', short: 'Mİ', icon: '📅' },
   road_leave: { label: 'Yol İzni', short: 'Yİ', icon: '🛣️' },
@@ -57,8 +58,8 @@ const attendanceStatuses = {
   other: { label: 'Diğer', short: 'D', icon: '•' }
 };
 
-function getNavItems() {
-  const common = [
+function getNavGroups() {
+  const personal = [
     ['dashboard', '⌂', 'Ana Sayfa'],
     ['my-meals', '🍽', 'Yemek Tercihim'],
     ['my-finance', '₺', 'Borç ve Ödemelerim'],
@@ -67,7 +68,8 @@ function getNavItems() {
     ['laundry', '🧺', 'Çamaşır Randevusu'],
     ['profile', '👤', 'Profilim']
   ];
-  if (hasPermission('kitchen.view')) common.splice(2, 0, ['cook-dashboard', '👨‍🍳', 'Aşçı Yemek Ekranı']);
+  if (hasPermission('kitchen.view')) personal.splice(2, 0, ['cook-dashboard', '👨‍🍳', 'Aşçı Yemek Ekranı']);
+
   const management = [];
   if (hasPermission('personnel.view')) management.push(['members', '👥', 'Personel Listesi']);
   if (hasPermission('attendance.manage')) management.push(['attendance-management', '📝', 'Yoklama Girişi']);
@@ -78,7 +80,12 @@ function getNavItems() {
   if (hasPermission('leave.plan')) management.push(['leave-planning', '📈', 'Yıllık İzin Anket Sonuçları']);
   if (hasPermission('reports.view')) management.push(['reports', '📊', 'Raporlar']);
   if (isAdmin()) management.push(['settings', '⚙', 'Sistem Ayarları']);
-  return [...common, ...management];
+  return { personal, management };
+}
+function getNavItems() {
+  const { personal, management } = getNavGroups();
+  if (isCommander()) return [personal[0], ...management, ...personal.slice(1)];
+  return [...personal, ...management];
 }
 function createEmptyDB() {
   return {
@@ -108,9 +115,13 @@ function ensureV6Data(data) {
   data.attendance ||= [];
   data.auditLogs ||= [];
   data.settings = { ...seed.settings, systemName: 'PBYS', ...(data.settings || {}) };
-  const roleMap = { admin: ['staff','admin'], manager: ['staff','manager'], staff: ['staff'], cook: ['staff','cook'], tabldot: ['staff','tabldot'], administrative: ['staff','administrative'], commander: ['staff','commander'] };
+  const roleMap = { admin: ['staff','admin'], staff: ['staff'], cook: ['staff','cook'], tabldot: ['staff','tabldot'], administrative: ['staff','administrative'], commander: ['staff','commander'] };
   data.users.forEach(u => {
-    u.roles = Array.isArray(u.roles) && u.roles.length ? u.roles : (roleMap[u.role] || ['staff']);
+    // V8.2: Müdür rolü kaldırıldı. Eski manager kayıtları güvenli biçimde Personel rolüne düşürülür.
+    if (u.role === 'manager') u.role = 'staff';
+    u.roles = Array.isArray(u.roles) && u.roles.length ? u.roles.filter(r => r !== 'manager') : (roleMap[u.role] || ['staff']);
+    if (!u.roles.length) u.roles = ['staff'];
+    if (!u.roles.includes('staff')) u.roles.unshift('staff');
     u.extraPermissions ||= [];
     u.annualAllowance = Number(u.annualAllowance ?? 30);
     u.roadAllowance = Number(u.roadAllowance ?? 2);
@@ -345,11 +356,30 @@ async function logout() {
 function renderNav() {
   const nav = document.getElementById('mainNav');
   const items = getNavItems();
+  const { personal, management } = getNavGroups();
+  const managementIds = new Set(management.map(x => x[0]));
+  const personalIds = new Set(personal.map(x => x[0]));
+  let managementLabelShown = false;
+  let personalLabelShown = false;
+  let kitchenLabelShown = false;
+
   nav.innerHTML = items.map(([id, icon, label]) => {
-    const kitchenStart = id === 'cook-dashboard';
-    const managementStart = ['members','attendance-management','attendance-overview','meal-management','finance-management','leave-management','leave-planning','reports','settings'].includes(id) && !items.slice(0, items.indexOf(items.find(x => x[0] === id))).some(x => ['members','attendance-management','attendance-overview','meal-management','finance-management','leave-management','leave-planning','reports','settings'].includes(x[0]));
-    return `${kitchenStart ? '<div class="nav-section-label">Mutfak</div>' : ''}${managementStart ? '<div class="nav-section-label">Yönetim</div>' : ''}<button class="nav-item ${id === currentPage ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span>${label}</button>`;
+    let prefix = '';
+    if (managementIds.has(id) && !managementLabelShown) {
+      prefix += '<div class="nav-section-label">Yönetim</div>';
+      managementLabelShown = true;
+    }
+    if (isCommander() && id !== 'dashboard' && personalIds.has(id) && !personalLabelShown) {
+      prefix += '<div class="nav-section-label">Kişisel İşlemler</div>';
+      personalLabelShown = true;
+    }
+    if (!isCommander() && id === 'cook-dashboard' && !kitchenLabelShown) {
+      prefix += '<div class="nav-section-label">Mutfak</div>';
+      kitchenLabelShown = true;
+    }
+    return `${prefix}<button class="nav-item ${id === currentPage ? 'active' : ''}" data-page="${id}"><span class="nav-icon">${icon}</span>${label}</button>`;
   }).join('');
+
   nav.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => {
     currentPage = btn.dataset.page;
     document.getElementById('sidebar').classList.remove('open');
@@ -387,20 +417,48 @@ function concurrentLeaveCapacity() {
   const total = approvedUsers().length;
   return Math.max(1, Math.floor(total * Number(db.settings.leaveConcurrentPercent || 25) / 100));
 }
+function elapsedApprovedLeaveDays(record, today = toISO(new Date())) {
+  if (!record || record.status !== 'approved' || !record.start || !record.end) return 0;
+  // İzin günü, ancak o gün tamamlandıktan sonra "kullanılmış" sayılır.
+  // Örn. başlangıç 10 Ağustos ise 10 Ağustos günü 0; 11 Ağustos günü 1 gün kullanılmış görünür.
+  if (today <= record.start) return 0;
+  const yesterday = toISO(addDays(parseISO(today), -1));
+  const usedEnd = record.end < yesterday ? record.end : yesterday;
+  if (usedEnd < record.start) return 0;
+  return daysBetween(record.start, usedEnd);
+}
 function getApprovedAnnualDays(userId, futureToo = true) {
-  const today = toISO(new Date());
   return db.leaveRequests
-    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin' && (futureToo || x.end <= today))
-    .reduce((sum, x) => sum + Number(x.days || daysBetween(x.start, x.end)), 0);
+    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin')
+    .reduce((sum, x) => sum + (futureToo ? Number(x.days || daysBetween(x.start, x.end)) : elapsedApprovedLeaveDays(x)), 0);
 }
 function getApprovedRoadDays(userId, futureToo = true) {
-  const today = toISO(new Date());
   return db.leaveRequests
-    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yol İzni' && (futureToo || x.end <= today))
-    .reduce((sum, x) => sum + Number(x.days || daysBetween(x.start, x.end)), 0);
+    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yol İzni')
+    .reduce((sum, x) => sum + (futureToo ? Number(x.days || daysBetween(x.start, x.end)) : elapsedApprovedLeaveDays(x)), 0);
+}
+function getUsedLeaveRanges(userId, type = 'Yıllık İzin') {
+  const today = toISO(new Date());
+  const yesterday = toISO(addDays(parseISO(today), -1));
+  return db.leaveRequests
+    .filter(x => x.userId === Number(userId) && x.status === 'approved' && x.type === type && x.start < today)
+    .map(x => {
+      const usedEnd = x.end < yesterday ? x.end : yesterday;
+      const usedDays = usedEnd >= x.start ? daysBetween(x.start, usedEnd) : 0;
+      return { ...x, usedEnd, usedDays };
+    })
+    .filter(x => x.usedDays > 0)
+    .sort((a,b) => a.start.localeCompare(b.start));
+}
+function leaveStatusBadge(request) {
+  if (!request || request.status !== 'approved') return statusBadge(request?.status);
+  const today = toISO(new Date());
+  if (today <= request.start) return statusBadge('approved');
+  if (today > request.end) return '<span class="status success">İzin Kullanıldı</span>';
+  return '<span class="status info">İzin Kullanılıyor</span>';
 }
 function getRoadRemaining(user) {
-  return Math.max(0, Number(user.roadAllowance ?? 2) - Number(user.usedRoadLeave || 0) - getApprovedRoadDays(user.id));
+  return Math.max(0, Number(user.roadAllowance ?? 2) - Number(user.usedRoadLeave || 0) - getApprovedRoadDays(user.id, false));
 }
 function isApprovedAnnualLeaveOnDate(userId, date) {
   return db.leaveRequests.some(x => x.userId === Number(userId) && x.status === 'approved' && x.type === 'Yıllık İzin' && x.start <= date && x.end >= date);
@@ -453,7 +511,7 @@ function renderDashboard() {
   const remaining = getRemainingLeave(currentUser);
   const preference = db.leavePreferences.find(x => x.userId === currentUser.id && x.year === db.settings.leavePlanYear);
   const currentWeek = getWeekDates(mealWeekCursor);
-  const mealCount = currentWeek.reduce((sum, date) => sum + ['breakfast','lunch','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(currentUser.id,date,meal))).length, 0);
+  const mealCount = currentWeek.reduce((sum, date) => sum + ['breakfast','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(currentUser.id,date,meal))).length, 0);
 
   const personal = `
     <div class="grid grid-4">
@@ -465,7 +523,7 @@ function renderDashboard() {
     <div class="grid grid-2 section-gap">
       <div class="card"><div class="card-header"><div><h3>Kişisel işlemlerim</h3><p>Tek hesapla kişisel ve yetkili işlemler birlikte yürütülür</p></div></div><div class="card-body quick-list">
         ${quick('🍽', 'Tarihli yemek listesini güncelle', 'Varsayılan olarak yemek yiyecek kabul edilirsiniz', "goPage('my-meals')")}
-        ${hasCookPermission() ? quick('👨‍🍳', 'Bugünün yemek sayılarını aç', 'Kahvaltı, öğle ve akşam hazırlık sayıları', "goPage('cook-dashboard')") : ''}
+        ${hasCookPermission() ? quick('👨‍🍳', 'Bugünün yemek sayılarını aç', 'Sabah ve akşam hazırlık sayıları', "goPage('cook-dashboard')") : ''}
         ${!isCommander() ? quick('📅', 'Yeni izin talebi oluştur', 'Yıllık, günübirlik ve diğer izin talepleri', "leaveModal()") : ''}
         ${quick('⭐', 'Yıllık izin tercihlerini gönder', '1. ve 2. tercih alınır', "goPage('leave-preference')")}
       </div></div>
@@ -482,16 +540,34 @@ function renderDashboard() {
   }
 
   const pendingMembers = db.users.filter(u => !u.approved).length;
+  const pendingLeaveRows = db.leaveRequests
+    .filter(x => x.status === 'pending')
+    .sort((a,b) => String(a.start || '').localeCompare(String(b.start || '')))
+    .slice(0, 8);
   const pendingLeaves = db.leaveRequests.filter(x => x.status === 'pending').length;
   const submitted = db.leavePreferences.filter(x => x.year === db.settings.leavePlanYear && x.status !== 'reselect').length;
-  document.getElementById('pageContent').innerHTML = personal + `
+
+  const pendingLeaveCard = hasPermission('leave.view') && pendingLeaveRows.length ? `
+    <div class="card section-gap">
+      <div class="card-header">
+        <div><h3>⏳ Onay bekleyen izin talepleri</h3><p>Değerlendirme bekleyen personel talepleri ana ekranda gösterilir.</p></div>
+        <button class="btn btn-primary btn-sm" onclick="goPage('leave-management')">Tümünü Gör</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Personel</th><th>İzin türü</th><th>Tarih</th><th>Gün</th><th>İşlem</th></tr></thead><tbody>
+        ${pendingLeaveRows.map(x => `<tr><td><strong>${escapeHtml(getUser(x.userId)?.name || '-')}</strong></td><td>${escapeHtml(x.type || '-')}</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.end)}</td><td>${Number(x.days || daysBetween(x.start,x.end))}</td><td><button class="btn btn-secondary btn-sm" onclick="goPage('leave-management')">İncele</button></td></tr>`).join('')}
+      </tbody></table></div>
+      ${pendingLeaves > pendingLeaveRows.length ? `<div class="card-body"><small>+ ${pendingLeaves - pendingLeaveRows.length} başka bekleyen izin talebi var.</small></div>` : ''}
+    </div>` : '';
+
+  const management = `
     <div class="management-banner section-gap"><strong>${userRoleLabels(currentUser)} yetkileri açık</strong><span>Aynı hesapla kişisel ve yönetim işlemlerine erişebilirsiniz.</span></div>
     <div class="grid grid-4 section-gap">
       ${metric('👥', 'Aktif personel', approvedUsers().length, pendingMembers + ' üyelik onay bekliyor')}
-      ${metric('🕓', 'Bekleyen izin talebi', pendingLeaves, 'Değerlendirme gerekli')}
+      ${metric('🕓', 'Bekleyen izin talebi', pendingLeaves, pendingLeaves ? 'Değerlendirme gerekli' : 'Bekleyen talep yok')}
       ${metric('⭐', 'Yıllık tercih veren', submitted + ' kişi', db.settings.leavePlanYear + ' planlama yılı')}
       ${metric('📏', 'Aynı anda izinli sınırı', concurrentLeaveCapacity() + ' kişi', '%' + (db.settings.leaveConcurrentPercent || 25) + ' mevcut sınırı')}
     </div>
+    ${pendingLeaveCard}
     <div class="card section-gap"><div class="card-header"><div><h3>Yönetim kısa yolları</h3><p>Yetkinize bağlı ortak ekranlar</p></div></div><div class="card-body quick-list">
       ${quick('👥', 'Personel listesini aç', 'Bilgi, rol/yetki ve izin geçmişi', "goPage('members')")}
       ${hasPermission('attendance.manage') ? quick('📝', 'Bugünkü yoklamayı gir', 'İzin, rapor, görev ve bulunduğu yer', "goPage('attendance-management')") : ''}
@@ -499,7 +575,10 @@ function renderDashboard() {
       ${hasPermission('meal.manage') ? quick('📊', 'Tabldot bilançosunu aç', 'Malzeme gideri, öğün maliyeti ve kişi borcu', "goPage('finance-management')") : ''}
       ${hasPermission('leave.plan') ? quick('📈', 'Yıllık izin anket sonuçlarını aç', 'Tercih yoğunluğu, tatiller ve değerlendirme', "goPage('leave-planning')") : ''}
     </div></div>`;
+
+  document.getElementById('pageContent').innerHTML = isCommander() ? management + personal : personal + management;
 }
+
 function renderMembers() {
   if (!hasPermission('personnel.view')) return goPage('dashboard');
   const pending = db.users.filter(u => !u.approved && !u.rejected);
@@ -527,7 +606,7 @@ function newMemberModal() {
   if (!isAdmin()) return;
   showModal('Yeni Personel Ekle', `<form id="newMemberForm" class="form-grid">
     <label>Ad soyad<input name="name" required></label><label>Telefon<input name="phone" required></label>
-    <label>Görev / rütbe<input name="title" required></label><label>Rol<select name="role"><option value="staff">Personel</option><option value="cook">Aşçı</option><option value="tabldot">Tabldot Sorumlusu</option><option value="manager">Müdür</option><option value="administrative">İdari İşler</option><option value="commander">Karakol Komutanı</option><option value="admin">Admin</option></select></label>
+    <label>Görev / rütbe<input name="title" required></label><label>Rol<select name="role"><option value="staff">Personel</option><option value="cook">Aşçı</option><option value="tabldot">Tabldot Sorumlusu</option><option value="administrative">İdari İşler</option><option value="commander">Karakol Komutanı</option><option value="admin">Admin</option></select></label>
     <label>Yıllık izin hakkı<input name="annualAllowance" type="number" value="30" min="0"></label><label>Yol izni hakkı<input name="roadAllowance" type="number" value="2" min="0"></label><label>Planlama puanı<input name="planningScore" type="number" value="50" min="0" max="1000"></label>
     <label class="span-2">Geçici şifre<input name="password" type="password" minlength="6" placeholder="En az 6 karakter" required></label>
     <div class="span-2"><button class="btn btn-primary btn-block">Personeli Kaydet</button></div></form>`);
@@ -590,7 +669,7 @@ function planningScoreModal(userId) {
 function roleModal(userId) {
   if (!isAdmin()) return;
   const user = getUser(userId); if (!user) return;
-  const available = ['staff','cook','tabldot','administrative','commander','manager','admin'];
+  const available = ['staff','cook','tabldot','administrative','commander','admin'];
   const permissionLabels = {
     'personnel.view':'Personel listesini gör','attendance.view':'Yoklama özetini gör','attendance.manage':'Yoklama girişi yap',
     'leave.view':'Tüm izinleri gör','leave.manage':'İzin kaydı ekle/düzenle','leave.approve':'İzin taleplerini onayla','leave.plan':'Yıllık izin planlamasını yönet',
@@ -610,7 +689,7 @@ function roleModal(userId) {
     if(removingAdmin&&otherAdmins.length===0)return toast('Sistemde en az bir admin kalmalıdır. Son admin yetkisi kaldırılamaz.');
     if(removingAdmin&&user.id===currentUser.id&&!confirm('Kendi admin yetkinizi kaldırıyorsunuz. Devam etmek istiyor musunuz?'))return;
     user.roles=[...new Set(roles)]; user.extraPermissions=[...new Set(fd.getAll('extraPermissions'))];
-    user.role=roles.includes('admin')?'admin':roles.includes('commander')?'commander':roles.includes('administrative')?'administrative':roles.includes('manager')?'manager':roles.includes('tabldot')?'tabldot':roles.includes('cook')?'cook':'staff';
+    user.role=roles.includes('admin')?'admin':roles.includes('commander')?'commander':roles.includes('administrative')?'administrative':roles.includes('tabldot')?'tabldot':roles.includes('cook')?'cook':'staff';
     logAudit('role.update',`${user.name}: ${userRoleLabels(user)} · Ek: ${(user.extraPermissions||[]).join(', ')}`);
     saveDB();closeModal();renderMembers();renderNav();toast('Rol ve yetkiler güncellendi.');
   });
@@ -729,14 +808,14 @@ function goCurrentMealWeek(management = false) {
   else mealWeekCursor = startOfWeek(new Date());
   management ? renderMealManagement() : renderMyMeals();
 }
-function getMealDay(userId, date) { return db.mealSelections?.[userId]?.[date] || { breakfast: '', lunch: '', dinner: '' }; }
+function getMealDay(userId, date) { return db.mealSelections?.[userId]?.[date] || { breakfast: '', dinner: '' }; }
 function setMealDay(userId, date, value) {
   db.mealSelections[userId] ||= {};
   db.mealSelections[userId][date] = value;
 }
 function mealDayReservedCount(day, userId = currentUser?.id, date = '') {
   if (!userId || !date) return Object.values(day || {}).filter(v => v !== 'no').length;
-  return ['breakfast','lunch','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(userId,date,meal))).length;
+  return ['breakfast','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(userId,date,meal))).length;
 }
 function mealChoice(name, value, selected) {
   const labels = { no: 'Yemeyeceğim', duty: 'Görevdeyim / Ayır' };
@@ -755,8 +834,8 @@ function fillAllMeals(value) {
 }
 function renderMyMeals() {
   const dates = getWeekDates(mealWeekCursor);
-  const totalReserved = dates.reduce((sum, date) => sum + ['breakfast','lunch','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(currentUser.id,date,meal))).length, 0);
-  const dutyCount = dates.reduce((sum, date) => sum + ['breakfast','lunch','dinner'].filter(meal => effectiveMealStatus(currentUser.id,date,meal) === 'duty').length, 0);
+  const totalReserved = dates.reduce((sum, date) => sum + ['breakfast','dinner'].filter(meal => ['yes','duty'].includes(effectiveMealStatus(currentUser.id,date,meal))).length, 0);
+  const dutyCount = dates.reduce((sum, date) => sum + ['breakfast','dinner'].filter(meal => effectiveMealStatus(currentUser.id,date,meal) === 'duty').length, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="summary-strip"><div><strong>${weekRangeText(mealWeekCursor)} yemek listesi</strong><div class="form-note">Seçim yapmadığınız öğünlerde varsayılan olarak yemek yiyeceğiniz kabul edilir.</div></div><div><strong>Ücretli öğün: ${totalReserved}</strong><div class="form-note">Görevde ayrılacak: ${dutyCount} öğün</div></div></div>
     <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>Tarihli yemek tercihleri</h3><p>Sadece istisnaları işaretleyin: Yemeyeceğim veya Görevdeyim / Ayır. Onaylı yıllık izin günleri otomatik olarak tabldot dışıdır.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeMealWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="goCurrentMealWeek()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeMealWeek(1)">Sonraki Hafta ›</button></div></div>
@@ -768,7 +847,7 @@ function renderMyMeals() {
             const leave = isApprovedAnnualLeaveOnDate(currentUser.id,date);
             return `<section class="meal-day-card ${leave ? 'meal-on-leave' : ''}">
               <div class="meal-day-head"><div><strong>${formatDayDate(date)}</strong><small>${date}</small></div>${leave ? '<span class="status warning">Yıllık izin · Tabldot dışı</span>' : '<span class="status success">Varsayılan: Yiyecek</span>'}</div>
-              <div class="meal-day-grid">${['breakfast','lunch','dinner'].map(meal => `<div class="meal-unit"><strong>${mealNames[meal]}</strong>${leave ? '<span class="meal-leave-note">İzin nedeniyle ücret yansımaz</span>' : `<div class="meal-choice-group">${mealChoice(`${date}-${meal}`,'no',day[meal])}${mealChoice(`${date}-${meal}`,'duty',day[meal])}</div><button type="button" class="text-button meal-reset" onclick="clearMealChoice('${date}','${meal}')">Varsayılana dön</button>`}</div>`).join('')}</div>
+              <div class="meal-day-grid">${['breakfast','dinner'].map(meal => `<div class="meal-unit"><strong>${mealNames[meal]}</strong>${leave ? '<span class="meal-leave-note">İzin nedeniyle ücret yansımaz</span>' : `<div class="meal-choice-group">${mealChoice(`${date}-${meal}`,'no',day[meal])}${mealChoice(`${date}-${meal}`,'duty',day[meal])}</div><button type="button" class="text-button meal-reset" onclick="clearMealChoice('${date}','${meal}')">Varsayılana dön</button>`}</div>`).join('')}</div>
             </section>`;
           }).join('')}
           </div>
@@ -782,7 +861,6 @@ function renderMyMeals() {
       if (isApprovedAnnualLeaveOnDate(currentUser.id,date)) return;
       setMealDay(currentUser.id, date, {
         breakfast: f.get(`${date}-breakfast`) || '',
-        lunch: f.get(`${date}-lunch`) || '',
         dinner: f.get(`${date}-dinner`) || ''
       });
     });
@@ -799,9 +877,9 @@ function clearMealChoice(date, meal) {
 
 function mealDateSummary(date) {
   const users = approvedUsers();
-  const summary = { breakfast: 0, lunch: 0, dinner: 0, duty: 0, no: 0, leave: 0 };
+  const summary = { breakfast: 0, dinner: 0, duty: 0, no: 0, leave: 0 };
   users.forEach(user => {
-    ['breakfast','lunch','dinner'].forEach(meal => {
+    ['breakfast','dinner'].forEach(meal => {
       const status = effectiveMealStatus(user.id,date,meal);
       if (status === 'yes' || status === 'duty') summary[meal]++;
       if (status === 'duty') summary.duty++;
@@ -815,17 +893,17 @@ function renderMealManagement() {
   if (!hasPermission('meal.manage')) return goPage('dashboard');
   const dates = getWeekDates(mealManagementWeekCursor);
   const users = approvedUsers();
-  const total = dates.reduce((sum, date) => { const x = mealDateSummary(date); return sum + x.breakfast + x.lunch + x.dinner; }, 0);
+  const total = dates.reduce((sum, date) => { const x = mealDateSummary(date); return sum + x.breakfast + x.dinner; }, 0);
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-4">${metric('🍲', 'Ücretli toplam öğün', total, weekRangeText(mealManagementWeekCursor))}${metric('👥', 'Aktif personel', users.length + ' kişi', 'Tercih yoksa yemek yiyecek')}${metric('🏖️', 'İzin nedeniyle düşen', dates.reduce((s,d)=>s+mealDateSummary(d).leave,0) + ' öğün', 'Sadece onaylı yıllık izin')}${metric('🧾', 'Kayıtlı malzeme gideri', money(db.expenses.reduce((s, x) => s + x.amount, 0)), 'Bilanço sayfasında hesaplanır')}</div>
     <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>Tarihli toplu yemek listesi</h3><p>Varsayılan durum Yiyecek; sadece Yemeyeceğim, Görevde/Ayır ve onaylı yıllık izin istisnaları gösterilir.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeMealWeek(-1,true)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="goCurrentMealWeek(true)">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeMealWeek(1,true)">Sonraki Hafta ›</button></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Tarih</th><th>Kahvaltı</th><th>Öğle</th><th>Akşam</th><th>Görevde/Ayır</th><th>Yemeyecek</th><th>İzin düşümü</th><th>Detay</th></tr></thead><tbody>${dates.map(date => { const x = mealDateSummary(date); return `<tr><td><strong>${formatDayDate(date)}</strong></td><td>${x.breakfast} kişi</td><td>${x.lunch} kişi</td><td>${x.dinner} kişi</td><td>${x.duty} öğün</td><td>${x.no} öğün</td><td>${x.leave} öğün</td><td><button class="btn btn-secondary btn-sm" onclick="openMealDateDetail('${date}')">Personel Listesi</button></td></tr>`; }).join('')}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Tarih</th><th>Sabah</th><th>Akşam</th><th>Görevde/Ayır</th><th>Yemeyecek</th><th>İzin düşümü</th><th>Detay</th></tr></thead><tbody>${dates.map(date => { const x = mealDateSummary(date); return `<tr><td><strong>${formatDayDate(date)}</strong></td><td>${x.breakfast} kişi</td><td>${x.dinner} kişi</td><td>${x.duty} öğün</td><td>${x.no} öğün</td><td>${x.leave} öğün</td><td><button class="btn btn-secondary btn-sm" onclick="openMealDateDetail('${date}')">Personel Listesi</button></td></tr>`; }).join('')}</tbody></table></div>
     </div>`;
 }
 function openMealDateDetail(date) {
   if (!hasPermission('meal.manage')) return;
-  const rows = approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td>${['breakfast','lunch','dinner'].map(meal => `<td>${mealStatusChip(effectiveMealStatus(user.id,date,meal))}</td>`).join('')}</tr>`).join('');
-  showModal(`${formatDayDate(date)} · Yemek Durumu`, `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Kahvaltı</th><th>Öğle</th><th>Akşam</th></tr></thead><tbody>${rows}</tbody></table></div>`);
+  const rows = approvedUsers().map(user => `<tr><td><strong>${escapeHtml(user.name)}</strong></td>${['breakfast','dinner'].map(meal => `<td>${mealStatusChip(effectiveMealStatus(user.id,date,meal))}</td>`).join('')}</tr>`).join('');
+  showModal(`${formatDayDate(date)} · Yemek Durumu`, `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>Sabah</th><th>Akşam</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 }
 function mealStatusChip(status) {
   const label = status === 'yes' ? 'Yiyecek (varsayılan)' : status === 'duty' ? 'Görevde / Ayır' : status === 'no' ? 'Yemeyecek' : status === 'leave' ? 'Yıllık izin · Tabldot dışı' : 'Yiyecek (varsayılan)';
@@ -877,7 +955,7 @@ function balanceRowsForPeriod(period) {
   const [py,pm] = period.split('-').map(Number), lastDay = new Date(py,pm,0).getDate();
   const start = `${py}-${pad(pm)}-01`, end = `${py}-${pad(pm)}-${pad(lastDay)}`;
   const totalExpense = db.expenses.filter(x=>x.date>=start&&x.date<=end).reduce((a,x)=>a+Number(x.amount||0),0);
-  const rows = approvedUsers().map(user=>{let count=0;dateRange(start,end).forEach(date=>['breakfast','lunch','dinner'].forEach(meal=>{if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal)))count++;}));return{user,count};});
+  const rows = approvedUsers().map(user=>{let count=0;dateRange(start,end).forEach(date=>['breakfast','dinner'].forEach(meal=>{if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal)))count++;}));return{user,count};});
   const totalMeals = rows.reduce((a,x)=>a+x.count,0), unit = totalMeals ? totalExpense / totalMeals : 0;
   return { start, end, totalExpense, rows, totalMeals, unit, label: periodLabelFromKey(period) };
 }
@@ -920,7 +998,7 @@ function kitchenMealCard(date, meal) {
   const stats = cookMealStats(date, meal);
   const warning = stats.leave ? `<div class="kitchen-ready">🏖️ ${stats.leave} personel yıllık izin nedeniyle tabldot dışı</div>` : `<div class="kitchen-ready">✓ Varsayılan yemek listesi aktif</div>`;
   return `<article class="card kitchen-meal-card">
-    <div class="kitchen-meal-head"><div><span>${meal === 'breakfast' ? '☕' : meal === 'lunch' ? '🍲' : '🍽'}</span><h3>${mealNames[meal]}</h3></div><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsim Listesi</button></div>
+    <div class="kitchen-meal-head"><div><span>${meal === 'breakfast' ? '☕' : '🍽'}</span><h3>${mealNames[meal]}</h3></div><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsim Listesi</button></div>
     <div class="kitchen-main-number"><strong>${stats.prepared}</strong><span>yemek hazırlanacak</span></div>
     <div class="kitchen-stat-grid">
       <div><strong>${stats.yes}</strong><span>Yerinde yiyecek</span></div>
@@ -934,7 +1012,7 @@ function kitchenMealCard(date, meal) {
 function renderCookDashboard() {
   if (!hasCookPermission()) return goPage('dashboard');
   const date = toISO(cookDateCursor);
-  const stats = ['breakfast', 'lunch', 'dinner'].map(meal => cookMealStats(date, meal));
+  const stats = ['breakfast', 'dinner'].map(meal => cookMealStats(date, meal));
   const totalPrepared = stats.reduce((sum, x) => sum + x.prepared, 0);
   const totalDuty = stats.reduce((sum, x) => sum + x.duty, 0);
   const totalLeave = stats.reduce((sum, x) => sum + x.leave, 0);
@@ -949,9 +1027,9 @@ function renderCookDashboard() {
       ${metric('👥', 'Aktif personel', approvedUsers().length + ' kişi', 'Her öğün için değerlendirilen')}
       ${metric('🏖️', 'Yıllık izin düşümü', totalLeave + ' öğün', 'Onaylı yıllık izin nedeniyle hazırlanmayacak')}
     </div>
-    <div class="kitchen-meals section-gap">${['breakfast', 'lunch', 'dinner'].map(meal => kitchenMealCard(date, meal)).join('')}</div>
+    <div class="kitchen-meals section-gap">${['breakfast', 'dinner'].map(meal => kitchenMealCard(date, meal)).join('')}</div>
     <div class="card section-gap"><div class="card-header"><div><h3>Günlük hazırlık özeti</h3><p>Aşçının hızlı kontrol listesi</p></div><div class="toolbar-right"><button class="btn btn-secondary btn-sm" onclick="renderCookDashboard()">↻ Yenile</button><button class="btn btn-secondary btn-sm" onclick="window.print()">Yazdır</button></div></div>
-      <div class="table-wrap"><table class="kitchen-summary-table"><thead><tr><th>Öğün</th><th>Hazırlanacak</th><th>Yerinde yiyecek</th><th>Görevde / Ayrılacak</th><th>Yemeyecek</th><th>Yıllık izin</th><th>Liste</th></tr></thead><tbody>${['breakfast','lunch','dinner'].map(meal => { const x = cookMealStats(date, meal); return `<tr><td><strong>${mealNames[meal]}</strong></td><td><span class="kitchen-table-total">${x.prepared}</span></td><td>${x.yes}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td><td><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsimleri Gör</button></td></tr>`; }).join('')}</tbody></table></div>
+      <div class="table-wrap"><table class="kitchen-summary-table"><thead><tr><th>Öğün</th><th>Hazırlanacak</th><th>Yerinde yiyecek</th><th>Görevde / Ayrılacak</th><th>Yemeyecek</th><th>Yıllık izin</th><th>Liste</th></tr></thead><tbody>${['breakfast','dinner'].map(meal => { const x = cookMealStats(date, meal); return `<tr><td><strong>${mealNames[meal]}</strong></td><td><span class="kitchen-table-total">${x.prepared}</span></td><td>${x.yes}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td><td><button class="btn btn-secondary btn-sm" onclick="openCookMealDetail('${date}','${meal}')">İsimleri Gör</button></td></tr>`; }).join('')}</tbody></table></div>
     </div>`;
 }
 function openCookMealDetail(date, meal) {
@@ -999,7 +1077,7 @@ function renderFinanceManagement() {
   const users=approvedUsers();
   const personMeals=users.map(user=>{
     let count=0;
-    dateRange(start,end).forEach(date=>['breakfast','lunch','dinner'].forEach(meal=>{
+    dateRange(start,end).forEach(date=>['breakfast','dinner'].forEach(meal=>{
       if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal))) count++;
     }));
     return {user,count};
@@ -1035,7 +1113,7 @@ function calculateBalanceDebts() {
   const start=`${py}-${pad(pm)}-01`,end=`${py}-${pad(pm)}-${pad(lastDay)}`;
   const label=new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(py,pm-1,1));
   const totalExpense=db.expenses.filter(x=>x.date>=start&&x.date<=end).reduce((a,x)=>a+Number(x.amount||0),0);
-  const rows=approvedUsers().map(user=>{let count=0;dateRange(start,end).forEach(date=>['breakfast','lunch','dinner'].forEach(meal=>{if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal)))count++;}));return{user,count};});
+  const rows=approvedUsers().map(user=>{let count=0;dateRange(start,end).forEach(date=>['breakfast','dinner'].forEach(meal=>{if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal)))count++;}));return{user,count};});
   const totalMeals=rows.reduce((a,x)=>a+x.count,0),unit=totalMeals?totalExpense/totalMeals:0;
   rows.forEach(x=>{
     const amount=Number((x.count*unit).toFixed(2));
@@ -1057,7 +1135,7 @@ function paymentModal() {
 function approvePayment(id) { if (!hasPermission('finance.manage')) return; const p = db.payments.find(x => x.id === id); if (!p) return; p.status = 'approved'; const d = db.debts.find(x => x.userId === p.userId && x.period === p.period); if (d) d.paid = Math.min(d.amount, d.paid + p.amount); saveDB(); renderFinanceManagement(); toast('Ödeme onaylandı.'); }
 
 function getRemainingLeave(user) {
-  return Math.max(0, Number(user.annualAllowance ?? 30) - Number(user.usedLeave || 0) - getApprovedAnnualDays(user.id));
+  return Math.max(0, Number(user.annualAllowance ?? 30) - Number(user.usedLeave || 0) - getApprovedAnnualDays(user.id, false));
 }
 function monthTitle(year, month) { return new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(new Date(year, month, 1)); }
 function changeLeaveMonth(delta) { leaveCalendarCursor = new Date(leaveCalendarCursor.getFullYear(), leaveCalendarCursor.getMonth() + delta, 1); renderLeaveManagement(); }
@@ -1070,7 +1148,7 @@ function renderMyLeaves() {
     <div class="grid grid-4">
       ${metric('📅', 'Yıllık izin hakkı', (currentUser.annualAllowance ?? 30) + ' gün', 'Temel hak')}
       ${metric('✅', 'Kullanılan yıllık', usedAnnual + ' gün', 'Geçmiş kesinleşen kullanım')}
-      ${metric('⏳', 'Kalan yıllık', getRemainingLeave(currentUser) + ' gün', 'Onaylı izinler düşülmüştür')}
+      ${metric('⏳', 'Kalan yıllık', getRemainingLeave(currentUser) + ' gün', 'Tamamlanan izin günleri düşülür')}
       ${metric('🛣️', 'Yol izni', getRoadRemaining(currentUser) + ' / ' + (currentUser.roadAllowance ?? 2) + ' gün', 'Kullanılan: ' + usedRoad + ' gün')}
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>İzinlerim</h3><p>İzin geçmişiniz ve talepleriniz</p></div>${!isCommander() ? '<button class="btn btn-primary btn-sm" onclick="leaveModal()">Yeni İzin Talebi</button>' : ''}</div>${own.length ? leaveTable(own, false) : '<div class="empty">Henüz izin kaydınız bulunmuyor.</div>'}</div>`;
@@ -1098,12 +1176,12 @@ function leaveTable(items, actions, compact = false) {
   const showActionColumn = actions || hasOwnEditable;
   return `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Gün</th>${compact ? '' : '<th>Şehir</th>'}<th>Durum</th>${showActionColumn ? '<th>İşlem</th>' : ''}</tr></thead><tbody>${items.map(x => {
     const ownEdit = `${canEditOwnLeave(x) ? `<button class="btn btn-secondary btn-sm" onclick="leaveModal(false, ${x.id})">Düzenle</button>` : ''}${canDeleteOwnLeave(x) ? ` <button class="btn btn-danger btn-sm" onclick="deleteLeaveRequest(${x.id})">Sil / İptal Et</button>` : ''}`.trim();
-    const managerDelete = actions && hasPermission('leave.manage') ? `<button class="btn btn-danger btn-sm" onclick="deleteLeaveRequest(${x.id}, true)">Sil</button>` : '';
+    const privilegedDelete = actions && hasPermission('leave.manage') ? `<button class="btn btn-danger btn-sm" onclick="deleteLeaveRequest(${x.id}, true)">Sil</button>` : '';
     const managementActions = actions && x.status === 'pending' && (hasPermission('leave.approve') || hasPermission('leave.manage'))
       ? `<button class="btn btn-success btn-sm" onclick="approveLeave(${x.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeave(${x.id})">Reddet</button>`
       : '';
-    const actionCell = [ownEdit, managementActions, managerDelete].filter(Boolean).join(' ') || '—';
-    return `<tr><td>${(hasPermission('personnel.view') || hasPermission('leave.view')) ? `<button class="person-link" onclick="openPersonnelLeaves(${x.userId})">${escapeHtml(getUser(x.userId)?.name || '-')}</button>` : `<strong>${escapeHtml(getUser(x.userId)?.name || '-')}</strong>`}</td><td>${escapeHtml(x.type)}</td><td>${formatDate(x.start)}</td><td>${formatDate(x.end)}</td><td>${x.days}</td>${compact ? '' : `<td>${escapeHtml(x.city || '-')}</td>`}<td>${statusBadge(x.status)}</td>${showActionColumn ? `<td>${actionCell}</td>` : ''}</tr>`;
+    const actionCell = [ownEdit, managementActions, privilegedDelete].filter(Boolean).join(' ') || '—';
+    return `<tr><td>${(hasPermission('personnel.view') || hasPermission('leave.view')) ? `<button class="person-link" onclick="openPersonnelLeaves(${x.userId})">${escapeHtml(getUser(x.userId)?.name || '-')}</button>` : `<strong>${escapeHtml(getUser(x.userId)?.name || '-')}</strong>`}</td><td>${escapeHtml(x.type)}</td><td>${formatDate(x.start)}</td><td>${formatDate(x.end)}</td><td>${x.days}</td>${compact ? '' : `<td>${escapeHtml(x.city || '-')}</td>`}<td>${leaveStatusBadge(x)}</td>${showActionColumn ? `<td>${actionCell}</td>` : ''}</tr>`;
   }).join('')}</tbody></table></div>`;
 }
 function calendarHtml(year, month) {
@@ -1127,9 +1205,9 @@ function openPersonnelLeaves(userId) {
   showModal(`${user.name} · Personel ve İzin Bilgileri`, `
     <div class="grid grid-4 compact-metrics">
       ${metric('📅', 'Yıllık hak', (user.annualAllowance ?? 30) + ' gün', 'Tanımlı hak')}
-      ${metric('⏳', 'Yıllık kalan', getRemainingLeave(user) + ' gün', 'Onaylı kayıtlar düşülmüş')}
+      ${metric('⏳', 'Yıllık kalan', getRemainingLeave(user) + ' gün', 'Kullanılmış günler düşülmüştür')}
       ${metric('🛣️', 'Yol izni hakkı', (user.roadAllowance ?? 2) + ' gün', 'Ayrı bakiye')}
-      ${metric('🛣️', 'Yol izni kalan', getRoadRemaining(user) + ' gün', 'Onaylı kayıtlar düşülmüş')}
+      ${metric('🛣️', 'Yol izni kalan', getRoadRemaining(user) + ' gün', 'Kullanılmış günler düşülmüştür')}
     </div>
     <div class="person-summary section-gap"><div><strong>Rol</strong><span>${escapeHtml(userRoleLabels(user))}</span></div>${hasPermission('leave.plan') ? `<div><strong>Planlama puanı</strong><span>${user.planningScore ?? 0}</span></div>` : ''}<div><strong>${db.settings.leavePlanYear} tercihi</strong><span>${preference ? 'Gönderildi' : 'Gönderilmedi'}</span></div></div>
     ${preference ? `<div class="preference-summary section-gap"><div><strong>1. tercih</strong><span>${formatDate(preference.firstStart)} – ${formatDate(preference.firstEnd)}</span></div><div><strong>2. tercih</strong><span>${formatDate(preference.secondStart)} – ${formatDate(preference.secondEnd)}</span></div></div>` : ''}
@@ -1162,7 +1240,7 @@ function leaveModal(asManager = false, editId = null) {
       Object.assign(editing, payload, { status: 'pending', updatedAt: new Date().toISOString() });
       logAudit('leave_request_updated', `${currentUser.name} izin talebini güncelledi: ${start} - ${end}`);
     } else {
-      const record = { id: Date.now(), userId: asManager ? Number(f.get('userId')) : currentUser.id, ...payload, status: asManager ? 'approved' : 'pending', source: asManager ? 'historical-or-manager' : 'request', createdAt: new Date().toISOString() };
+      const record = { id: Date.now(), userId: asManager ? Number(f.get('userId')) : currentUser.id, ...payload, status: asManager ? 'approved' : 'pending', source: asManager ? 'historical-or-authorized' : 'request', createdAt: new Date().toISOString() };
       db.leaveRequests.push(record);
       logAudit(asManager ? 'leave_historical_created' : 'leave_request_created', `${getUser(record.userId)?.name || currentUser.name}: ${type} ${start} - ${end}`);
     }
@@ -1173,9 +1251,9 @@ function deleteLeaveRequest(id, asManager = false) {
   const x = db.leaveRequests.find(r => r.id === Number(id));
   if (!x) return;
   const ownAllowed = x.userId === currentUser?.id && ['pending','rejected'].includes(x.status);
-  const managerAllowed = asManager && hasPermission('leave.manage');
-  if (!ownAllowed && !managerAllowed) return toast('Bu izin kaydını silme yetkiniz yok.');
-  if (x.status === 'approved' && !managerAllowed) return toast('Onaylanmış izin personel tarafından silinemez.');
+  const privilegedAllowed = asManager && hasPermission('leave.manage');
+  if (!ownAllowed && !privilegedAllowed) return toast('Bu izin kaydını silme yetkiniz yok.');
+  if (x.status === 'approved' && !privilegedAllowed) return toast('Onaylanmış izin personel tarafından silinemez.');
   const userName = getUser(x.userId)?.name || 'Personel';
   if (!confirm(`${userName} için ${formatShortDate(x.start)} - ${formatShortDate(x.end)} izin kaydı silinsin mi?`)) return;
   db.leaveRequests = db.leaveRequests.filter(r => r.id !== Number(id));
@@ -1417,16 +1495,27 @@ function reportHtml(type) {
   const head = title => `<div class="report-head"><div><h1>PBYS</h1><p>Personel Bilgi Yönetim Sistemi</p></div><div><strong>${title}</strong><span>Oluşturma: ${generated}</span></div></div>`;
   if (type === 'meal') {
     const period = reportPeriodKey(), [y,m] = period.split('-').map(Number), last = new Date(y,m,0).getDate();
-    const rows = Array.from({length:last},(_,i)=>`${y}-${pad(m)}-${pad(i+1)}`).map(date=>{const x=mealDateSummary(date);return `<tr><td>${formatDayDate(date)}</td><td>${x.breakfast}</td><td>${x.lunch}</td><td>${x.dinner}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td></tr>`}).join('');
-    return `${head('Yemek Katılım Raporu')}<table><thead><tr><th>Tarih</th><th>Kahvaltı</th><th>Öğle</th><th>Akşam</th><th>Görev/Ayır</th><th>Yemeyecek</th><th>İzin</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const rows = Array.from({length:last},(_,i)=>`${y}-${pad(m)}-${pad(i+1)}`).map(date=>{const x=mealDateSummary(date);return `<tr><td>${formatDayDate(date)}</td><td>${x.breakfast}</td><td>${x.dinner}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td></tr>`}).join('');
+    return `${head('Yemek Katılım Raporu')}<table><thead><tr><th>Tarih</th><th>Sabah</th><th>Akşam</th><th>Görev/Ayır</th><th>Yemeyecek</th><th>İzin</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   if (type === 'finance') {
     const rows = db.debts.map(d=>`<tr><td>${escapeHtml(getUser(d.userId)?.name||'-')}</td><td>${escapeHtml(d.period)}</td><td>${money(d.amount)}</td><td>${money(d.paid)}</td><td>${money(Math.max(0,d.amount-d.paid))}</td></tr>`).join('');
     return `${head('Borç ve Tahsilat Raporu')}<table><thead><tr><th>Personel</th><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th></tr></thead><tbody>${rows||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
   }
   if (type === 'leave') {
-    const rows = approvedUsers().map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${u.annualAllowance??30}</td><td>${Number(u.usedLeave||0)+getApprovedAnnualDays(u.id,false)}</td><td>${getRemainingLeave(u)}</td><td>${u.roadAllowance??2}</td><td>${getRoadRemaining(u)}</td></tr>`).join('');
-    return `${head('Yıllık İzin Raporu')}<table><thead><tr><th>Personel</th><th>Yıllık Hak</th><th>Kullanılan</th><th>Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const summaryRows = approvedUsers().map(u => {
+      const usedAnnual = Number(u.usedLeave || 0) + getApprovedAnnualDays(u.id, false);
+      const usedRoad = Number(u.usedRoadLeave || 0) + getApprovedRoadDays(u.id, false);
+      return `<tr><td>${escapeHtml(u.name)}</td><td>${u.annualAllowance??30}</td><td>${usedAnnual}</td><td>${getRemainingLeave(u)}</td><td>${u.roadAllowance??2}</td><td>${usedRoad}</td><td>${getRoadRemaining(u)}</td></tr>`;
+    }).join('');
+    const usedRows = [];
+    approvedUsers().forEach(u => {
+      getUsedLeaveRanges(u.id, 'Yıllık İzin').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
+      getUsedLeaveRanges(u.id, 'Yol İzni').forEach(x => usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>${formatShortDate(x.start)} – ${formatShortDate(x.usedEnd)}</td><td>${x.usedDays}</td></tr>`));
+      if (Number(u.usedLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yıllık İzin</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedLeave)}</td></tr>`);
+      if (Number(u.usedRoadLeave || 0)) usedRows.push(`<tr><td>${escapeHtml(u.name)}</td><td>Yol İzni</td><td>Eski manuel kayıt · tarih girilmemiş</td><td>${Number(u.usedRoadLeave)}</td></tr>`);
+    });
+    return `${head('Yıllık İzin Raporu')}<p class="report-note">Onaylanan gelecek izinler hemen kullanılmış izne düşmez. İzin başlangıcının ertesi günü ilk tamamlanan gün kullanılmış sayılır.</p><h3>İzin Bakiyeleri</h3><table><thead><tr><th>Personel</th><th>Yıllık Hak</th><th>Yıllık Kullanılan</th><th>Yıllık Kalan</th><th>Yol Hak</th><th>Yol Kullanılan</th><th>Yol Kalan</th></tr></thead><tbody>${summaryRows}</tbody></table><h3>Kullanılan İzin Tarihleri</h3><table><thead><tr><th>Personel</th><th>İzin Türü</th><th>Kullanılan Tarih Aralığı</th><th>Gün</th></tr></thead><tbody>${usedRows.join('') || '<tr><td colspan="4">Henüz kullanılmış izin kaydı bulunmuyor.</td></tr>'}</tbody></table>`;
   }
   if (type === 'planning') {
     const year=db.settings.leavePlanYear;
