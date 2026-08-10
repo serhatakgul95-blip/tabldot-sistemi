@@ -1,58 +1,38 @@
-# GençServi / Personel Yaşam ve Tabldot Sistemi V6.1
+# PBYS V7 — Personel Bilgi Yönetim Sistemi
 
-V6.1, V5 arayüzünü Firebase Authentication + Cloud Firestore ile merkezi hale getiren ilk gerçek veritabanı sürümüdür.
+Bu test sürümü V6 Firestore altyapısı üzerine toplu kullanıcı geri bildirimlerini uygular.
 
 ## Bu sürümde
+- Giriş ve marka adı: **PBYS — Personel Bilgi Yönetim Sistemi**
+- Personel bilgi düzenleme, çoklu rol ve ek özel yetki yönetimi
+- Son admin rolünün yanlışlıkla kaldırılamaması
+- Yoklamada durum + bulunduğu yer / görev yeri
+- Yıllık izin: 30 gün + ayrı 2 gün yol izni bakiyesi
+- Admin/İdari İşler için geçmiş izin kaydı girişi
+- Günübirlik izin talebi
+- Karakol Komutanı kendi izinlerini ve yıllık tercihini görür; yeni izin talebi göndermez
+- Yıllık izin tercihleri: başlangıç seçimine göre otomatik 10/20 günlük dönem
+- Eşzamanlı yıllık izin sınırı: aktif personelin %25'i (aşağı yuvarlanır)
+- Yıllık izin anket sonuçları, grafik, resmi tatil vurguları ve yönetim değerlendirmesi
+- 2. tercihi kabul edilene yönetim içi puan bonusu; personel puanı görmez
+- Yemek tercihi varsayılan: **Yiyecek**; kullanıcı sadece **Yemeyeceğim** veya **Görevdeyim / Ayır** istisnasını işaretler
+- Onaylı yıllık izin günleri tabldot ücretinden otomatik çıkar
+- Mobil yemek tercihleri yatay kaydırmasız kart görünümü
+- Tabldot bilançosu: malzeme gideri / toplam ücretli öğün = öğün maliyeti; personel borcu otomatik hesaplama
+- Bilanço yazdırma / PDF kaydetme
+- Çamaşır makineleri: Beyaz Çamaşır Makinesi, Gri Çamaşır Makinesi, Kurutma Makinesi
+- Kurutma Makinesi başlangıçta arızalı
+- Personel arıza kaydı oluşturabilir; yetkili durumunu Açık / İnceleniyor / Onarıldı yapabilir
+- Firestore'da `laundryFaults` koleksiyonu eklendi
 
-- Telefon numarası + şifre görünümü korunur.
-- Arka planda Firebase Authentication Email/Password kullanılır.
-- Telefon numarası teknik bir Firebase e-posta kimliğine dönüştürülür; gerçek e-posta kullanıcıya gösterilmez.
-- Şifreler Firestore'a veya app.js içine kaydedilmez.
-- İlk kurulumda site içinden ilk Admin hesabı oluşturulur.
-- Yeni kayıtlar `Onay Bekliyor` olarak `users` koleksiyonuna yazılır.
-- Admin üyelik onaylar ve rol/yetki atar.
-- Admin isterse site içinden Firebase hesabıyla yeni personel de oluşturabilir.
-- Firestore koleksiyonları site tarafından otomatik oluşturulur.
-- Yemek, izin, yoklama, ödeme ve çamaşır verileri merkezi Firestore'a yazılır.
-- Firestore değişiklikleri gerçek zamanlı dinlenir ve açık ekran yenilenir.
-- Sistem Ayarları içinden Firestore verisi manuel yenilenebilir ve JSON yedek indirilebilir.
-
-## Firestore koleksiyonları
-
-- `users`
-- `mealChoices`
-- `mealExpenses`
-- `payments`
-- `debts`
-- `leaveRequests`
-- `leavePreferences`
-- `leavePlanResults`
-- `laundryReservations`
-- `attendance`
-- `auditLogs`
-- `settings/app`
-
-## GitHub Pages'e yükleme
-
-Aşağıdaki beş dosya repository ana dizininde bulunmalıdır:
-
+## GitHub'a yükleme
+Depodaki eski dosyaların üzerine şu dosyaları yükleyin:
 - `index.html`
 - `styles.css`
 - `app.js`
 - `firebase.js`
 - `README.md`
 
-## Firebase'de bir defalık gerekli ayar
+Sonra **Commit changes** yapın. GitHub Pages güncellendikten sonra telefonda sayfayı tamamen yenileyin.
 
-Firebase Console > Authentication > Sign-in method > Email/Password etkinleştirilmelidir.
-
-Firestore şu anda geliştirme/test aşamasındadır. Gerçek personel, izin, telefon, ödeme ve diğer hassas kayıtlar girilmeden önce Firestore Security Rules rol/yetki bazlı olarak kilitlenmelidir.
-
-## İlk açılış
-
-Firestore `users` koleksiyonu boşsa giriş ekranında `İlk Admin Hesabını Oluştur` kutusu görünür. İlk admin oluşturulduktan sonra diğer personel `Kayıt Ol` ekranından başvuru yapabilir; admin `Personel Listesi` ekranından üyeliği onaylar ve rol atar.
-
-
-## V6.1 düzeltmesi
-- İlk admin butonu artık herhangi bir kullanıcıya değil, admin hesabının varlığına bakar.
-- Bir kullanıcı daha önce Kayıt Ol ekranından hesap açmışsa, aynı telefon ve şifreyle ilk admin olarak yükseltilebilir.
+> Test modu devam ediyor. Gerçek personel verilerine geçmeden önce Firestore Security Rules rol/yetki modeline göre kilitlenmelidir.
