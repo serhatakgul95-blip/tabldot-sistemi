@@ -555,3 +555,137 @@ tbody tr:hover { background: #f8fafc; }
 }
 @media(max-width:430px){.survey-chart{grid-template-columns:1fr}.meal-unit .meal-choice-group{grid-template-columns:1fr 1fr}.topbar h2{font-size:21px}}
 @media print{.calendar-actions,.btn,.text-button{display:none!important}.page-content{background:#fff}.holiday-hit td{background:#fff7ed!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+
+/* PBYS V8 - toplu test düzeltmeleri */
+.attendance-task-mini{
+  display:block;
+  margin-top:3px;
+  max-width:120px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:9px;
+  line-height:1.2;
+  color:#334155;
+  font-weight:700;
+}
+.machine-status-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.report-actions,.report-preview-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.pdf-preview{
+  max-height:65vh;
+  overflow:auto;
+  padding:18px;
+  border:1px solid var(--line,#e2e8f0);
+  border-radius:14px;
+  background:white;
+}
+.pdf-preview .report-head,
+.report-print-area .report-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:20px;
+  padding-bottom:14px;
+  margin-bottom:16px;
+  border-bottom:2px solid #0f172a;
+}
+.pdf-preview .report-head h1,
+.report-print-area .report-head h1{margin:0;font-size:25px}
+.pdf-preview .report-head p,
+.report-print-area .report-head p{margin:3px 0 0;color:#64748b}
+.pdf-preview .report-head>div:last-child,
+.report-print-area .report-head>div:last-child{text-align:right}
+.pdf-preview .report-head span,
+.report-print-area .report-head span{display:block;margin-top:4px;font-size:11px;color:#64748b}
+.pdf-preview table,
+.report-print-area table{
+  width:100%;
+  border-collapse:collapse;
+  margin:10px 0 22px;
+  font-size:11px;
+}
+.pdf-preview th,.pdf-preview td,
+.report-print-area th,.report-print-area td{
+  padding:8px;
+  border:1px solid #cbd5e1;
+  text-align:left;
+}
+.pdf-preview th,.report-print-area th{background:#f1f5f9}
+.report-summary{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:12px 0 18px;
+}
+.report-summary span{
+  padding:9px 11px;
+  border:1px solid #cbd5e1;
+  border-radius:9px;
+  background:#f8fafc;
+}
+.report-print-area{display:none}
+
+/* Mobil yemek kartlarında günler daha belirgin */
+.meal-mobile-list{gap:22px}
+.meal-day-card{
+  border:2px solid #cbd5e1;
+  border-radius:20px;
+  padding:18px;
+  box-shadow:0 8px 24px rgba(15,23,42,.07);
+  overflow:hidden;
+}
+.meal-day-card:nth-child(even){background:#fbfdff}
+.meal-day-card.meal-on-leave{border-color:#f59e0b;box-shadow:0 8px 24px rgba(245,158,11,.10)}
+.meal-day-head{
+  margin:-18px -18px 16px;
+  padding:15px 18px;
+  background:#f1f5f9;
+  border-bottom:2px solid #cbd5e1;
+}
+.meal-day-card.meal-on-leave .meal-day-head{background:#fff7ed;border-bottom-color:#fed7aa}
+.meal-day-head strong{
+  font-size:20px;
+  color:#0f172a;
+  letter-spacing:-.02em;
+}
+.meal-day-head small{
+  margin-top:5px;
+  font-size:12px;
+  font-weight:600;
+}
+.meal-unit{border-color:#d7e0eb;background:#fff}
+
+@media(max-width:760px){
+  .meal-mobile-list{gap:20px}
+  .meal-day-card{padding:14px;border-width:2px;border-radius:18px}
+  .meal-day-head{margin:-14px -14px 14px;padding:14px}
+  .meal-day-head strong{font-size:19px}
+  .machine-status-actions{display:grid;grid-template-columns:1fr}
+  .pdf-preview{padding:10px;max-height:70vh}
+  .pdf-preview .report-head{flex-direction:column}
+  .pdf-preview .report-head>div:last-child{text-align:left}
+}
+
+@media print{
+  body.printing-report > *:not(.report-print-area){display:none!important}
+  body.printing-report .report-print-area{
+    display:block!important;
+    position:static;
+    width:100%;
+    padding:0;
+    margin:0;
+    color:#000;
+    background:#fff;
+  }
+  body.printing-report .report-print-area table{font-size:10px}
+  body.printing-report .report-print-area h3{margin-top:18px}
+}

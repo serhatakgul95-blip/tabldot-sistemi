@@ -8,6 +8,7 @@ const seed = {
     systemName: 'PBYS',
     iban: 'TR00 0000 0000 0000 0000 0000 00',
     accountName: 'Ortak Tabldot Hesabı',
+    bankName: '',
     weeklyLaundryLimit: 2,
     leavePlanYear: 2027,
     leaveConcurrentPercent: 25,
@@ -30,10 +31,11 @@ let cookDateCursor = new Date();
 let attendanceDateCursor = new Date();
 let attendanceWeekCursor = startOfWeek(new Date());
 
-const roleNames = { admin: 'Admin', manager: 'Müdür', staff: 'Personel', cook: 'Aşçı', administrative: 'İdari İşler', commander: 'Karakol Komutanı' };
+const roleNames = { admin: 'Admin', manager: 'Müdür', staff: 'Personel', cook: 'Aşçı', tabldot: 'Tabldot Sorumlusu', administrative: 'İdari İşler', commander: 'Karakol Komutanı' };
 const rolePermissions = {
   staff: [],
   cook: ['kitchen.view'],
+  tabldot: ['meal.manage','finance.manage','reports.view'],
   administrative: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','meal.manage','finance.manage','reports.view'],
   commander: ['personnel.view','attendance.view','leave.view','leave.approve','leave.plan','reports.view'],
   manager: ['personnel.view','attendance.view','attendance.manage','leave.view','leave.manage','leave.approve','leave.plan','meal.manage','finance.manage','reports.view','kitchen.view','laundry.manage'],
@@ -41,6 +43,19 @@ const rolePermissions = {
 };
 const mealNames = { breakfast: 'Kahvaltı', lunch: 'Öğle', dinner: 'Akşam' };
 const mealStatusNames = { yes: 'Yiyecek (varsayılan)', no: 'Yemeyecek', duty: 'Görevdeyim / Ayır', leave: 'Yıllık izin · Tabldot dışı', '': 'Yiyecek (varsayılan)' };
+const attendanceStatuses = {
+  present: { label: 'Mevcut', short: 'M', icon: '✅' },
+  annual_leave: { label: 'Yıllık İzin', short: 'İ', icon: '🏖️' },
+  excuse_leave: { label: 'Mazeret İzni', short: 'Mİ', icon: '📅' },
+  road_leave: { label: 'Yol İzni', short: 'Yİ', icon: '🛣️' },
+  medical: { label: 'Raporlu / İstirahatli', short: 'R', icon: '🏥' },
+  duty: { label: 'Görevli', short: 'G', icon: '📍' },
+  temporary_duty: { label: 'Geçici Görevli', short: 'GG', icon: '🚗' },
+  course: { label: 'Kurs / Eğitim', short: 'K', icon: '📚' },
+  referral: { label: 'Sevkli', short: 'S', icon: '🚑' },
+  rest: { label: 'Nöbet İstirahati', short: 'Nİ', icon: '😴' },
+  other: { label: 'Diğer', short: 'D', icon: '•' }
+};
 
 function getNavItems() {
   const common = [
@@ -93,7 +108,7 @@ function ensureV6Data(data) {
   data.attendance ||= [];
   data.auditLogs ||= [];
   data.settings = { ...seed.settings, systemName: 'PBYS', ...(data.settings || {}) };
-  const roleMap = { admin: ['staff','admin'], manager: ['staff','manager'], staff: ['staff'], cook: ['staff','cook'], administrative: ['staff','administrative'], commander: ['staff','commander'] };
+  const roleMap = { admin: ['staff','admin'], manager: ['staff','manager'], staff: ['staff'], cook: ['staff','cook'], tabldot: ['staff','tabldot'], administrative: ['staff','administrative'], commander: ['staff','commander'] };
   data.users.forEach(u => {
     u.roles = Array.isArray(u.roles) && u.roles.length ? u.roles : (roleMap[u.role] || ['staff']);
     u.extraPermissions ||= [];
@@ -512,7 +527,7 @@ function newMemberModal() {
   if (!isAdmin()) return;
   showModal('Yeni Personel Ekle', `<form id="newMemberForm" class="form-grid">
     <label>Ad soyad<input name="name" required></label><label>Telefon<input name="phone" required></label>
-    <label>Görev / rütbe<input name="title" required></label><label>Rol<select name="role"><option value="staff">Personel</option><option value="cook">Aşçı</option><option value="manager">Müdür</option><option value="administrative">İdari İşler</option><option value="commander">Karakol Komutanı</option><option value="admin">Admin</option></select></label>
+    <label>Görev / rütbe<input name="title" required></label><label>Rol<select name="role"><option value="staff">Personel</option><option value="cook">Aşçı</option><option value="tabldot">Tabldot Sorumlusu</option><option value="manager">Müdür</option><option value="administrative">İdari İşler</option><option value="commander">Karakol Komutanı</option><option value="admin">Admin</option></select></label>
     <label>Yıllık izin hakkı<input name="annualAllowance" type="number" value="30" min="0"></label><label>Yol izni hakkı<input name="roadAllowance" type="number" value="2" min="0"></label><label>Planlama puanı<input name="planningScore" type="number" value="50" min="0" max="1000"></label>
     <label class="span-2">Geçici şifre<input name="password" type="password" minlength="6" placeholder="En az 6 karakter" required></label>
     <div class="span-2"><button class="btn btn-primary btn-block">Personeli Kaydet</button></div></form>`);
@@ -575,7 +590,7 @@ function planningScoreModal(userId) {
 function roleModal(userId) {
   if (!isAdmin()) return;
   const user = getUser(userId); if (!user) return;
-  const available = ['staff','cook','administrative','commander','manager','admin'];
+  const available = ['staff','cook','tabldot','administrative','commander','manager','admin'];
   const permissionLabels = {
     'personnel.view':'Personel listesini gör','attendance.view':'Yoklama özetini gör','attendance.manage':'Yoklama girişi yap',
     'leave.view':'Tüm izinleri gör','leave.manage':'İzin kaydı ekle/düzenle','leave.approve':'İzin taleplerini onayla','leave.plan':'Yıllık izin planlamasını yönet',
@@ -595,7 +610,7 @@ function roleModal(userId) {
     if(removingAdmin&&otherAdmins.length===0)return toast('Sistemde en az bir admin kalmalıdır. Son admin yetkisi kaldırılamaz.');
     if(removingAdmin&&user.id===currentUser.id&&!confirm('Kendi admin yetkinizi kaldırıyorsunuz. Devam etmek istiyor musunuz?'))return;
     user.roles=[...new Set(roles)]; user.extraPermissions=[...new Set(fd.getAll('extraPermissions'))];
-    user.role=roles.includes('admin')?'admin':roles.includes('commander')?'commander':roles.includes('administrative')?'administrative':roles.includes('manager')?'manager':roles.includes('cook')?'cook':'staff';
+    user.role=roles.includes('admin')?'admin':roles.includes('commander')?'commander':roles.includes('administrative')?'administrative':roles.includes('manager')?'manager':roles.includes('tabldot')?'tabldot':roles.includes('cook')?'cook':'staff';
     logAudit('role.update',`${user.name}: ${userRoleLabels(user)} · Ek: ${(user.extraPermissions||[]).join(', ')}`);
     saveDB();closeModal();renderMembers();renderNav();toast('Rol ve yetkiler güncellendi.');
   });
@@ -612,10 +627,10 @@ function attendanceStatusFromLeave(req) {
 const attendancePlaceSuggestions = ['Karakol', 'Yemekhane', 'Nizamiye', 'İdari İşler', 'Devriye', 'Araç Görevi', 'Dış Görev'];
 function attendanceForUserDate(userId, date) {
   const manual = (db.attendance || []).filter(x => x.userId === Number(userId) && x.start <= date && x.end >= date).sort((a,b) => b.id - a.id)[0];
-  if (manual) return { status: manual.status, note: manual.note || '', location: manual.location || '', source: 'manual', record: manual };
+  if (manual) return { status: manual.status, task: manual.task || manual.note || '', note: manual.note || '', location: manual.location || '', source: 'manual', record: manual };
   const leave = (db.leaveRequests || []).find(x => x.userId === Number(userId) && ['approved','report'].includes(x.status) && x.start <= date && x.end >= date);
-  if (leave) return { status: attendanceStatusFromLeave(leave), note: leave.type, location: '', source: 'leave', record: leave };
-  return { status: 'present', note: '', location: '', source: 'default', record: null };
+  if (leave) return { status: attendanceStatusFromLeave(leave), task: '', note: leave.type, location: '', source: 'leave', record: leave };
+  return { status: 'present', task: '', note: '', location: '', source: 'default', record: null };
 }
 function dailyAttendanceStats(date) {
   const stats = { total: 0, present: 0 };
@@ -638,15 +653,16 @@ function attendanceEditModal(userId) {
     <datalist id="attendancePlaces">${attendancePlaceSuggestions.map(x => `<option value="${escapeHtml(x)}"></option>`).join('')}</datalist>
     <label>Başlangıç<input name="start" type="date" value="${date}" required></label>
     <label>Bitiş<input name="end" type="date" value="${date}" required></label>
-    <label class="span-2">Açıklama<textarea name="note" placeholder="Rapor açıklaması, görevin detayı vb.">${escapeHtml(current.source === 'manual' ? current.note : '')}</textarea></label>
-    <div class="span-2 form-note">“Durum” personelin yoklama halidir. “Bulunduğu yer / görev yeri” serbest yazılabilir; Yemekhane, Nizamiye veya sonradan ihtiyaç duyulan başka bir yer girilebilir.</div>
+    <label class="span-2">Görev / Açıklama<input name="task" value="${escapeHtml(current.source === 'manual' ? (current.task || current.note || '') : '')}" placeholder="Örn. Şehir merkezine çıkış yaptı"></label>
+    <label class="span-2">Ek not<textarea name="note" placeholder="Varsa ek açıklama, rapor detayı vb.">${escapeHtml(current.source === 'manual' ? (current.note || '') : '')}</textarea></label>
+    <div class="span-2 form-note">“Durum” yoklama halini, “Bulunduğu yer” görev yerini; “Görev / Açıklama” ise serbest metinle o günkü görevi belirtir.</div>
     <div class="span-2"><button class="btn btn-primary btn-block">Durumu Kaydet</button></div>
   </form>`);
   document.getElementById('attendanceForm').addEventListener('submit', e => {
     e.preventDefault(); const f = new FormData(e.target); const start=f.get('start'), end=f.get('end');
     if (end < start) return toast('Bitiş tarihi başlangıçtan önce olamaz.');
     const location = String(f.get('location') || '').trim();
-    db.attendance.push({ id: Date.now(), userId: user.id, status: f.get('status'), start, end, location, note: f.get('note'), source: 'manual' });
+    db.attendance.push({ id: Date.now(), userId: user.id, status: f.get('status'), start, end, location, task: String(f.get('task') || '').trim(), note: f.get('note'), source: 'manual' });
     logAudit('attendance.update', `${user.name}: ${start}–${end} ${attendanceStatusMeta(f.get('status')).label}${location ? ` · ${location}` : ''}`);
     saveDB(); closeModal(); renderAttendanceManagement(); toast('Yoklama durumu kaydedildi.');
   });
@@ -663,7 +679,7 @@ function openAttendanceHistory(userId) {
   const user=getUser(userId); if(!user) return;
   const manual=(db.attendance||[]).filter(x=>x.userId===user.id).sort((a,b)=>b.start.localeCompare(a.start));
   const leaves=(db.leaveRequests||[]).filter(x=>x.userId===user.id && ['approved','report'].includes(x.status)).sort((a,b)=>b.start.localeCompare(a.start));
-  showModal(`${user.name} · Yoklama Geçmişi`, `<div class="quick-list">${[...manual.map(x=>({start:x.start,end:x.end,label:attendanceStatusMeta(x.status).label,location:x.location||'',note:x.note||'El ile kayıt'})),...leaves.map(x=>({start:x.start,end:x.end,label:attendanceStatusMeta(attendanceStatusFromLeave(x)).label,location:'',note:`${x.type} · İzin sisteminden`}))].sort((a,b)=>b.start.localeCompare(a.start)).map(x=>`<div class="quick-item"><div><strong>${x.label}${x.location ? ` · ${escapeHtml(x.location)}` : ''}</strong><span>${formatShortDate(x.start)} – ${formatShortDate(x.end)} · ${escapeHtml(x.note)}</span></div></div>`).join('') || '<div class="empty">Geçmiş kayıt bulunmuyor.</div>'}</div>`);
+  showModal(`${user.name} · Yoklama Geçmişi`, `<div class="quick-list">${[...manual.map(x=>({start:x.start,end:x.end,label:attendanceStatusMeta(x.status).label,location:x.location||'',note:[x.task,x.note].filter(Boolean).join(' · ')||'El ile kayıt'})),...leaves.map(x=>({start:x.start,end:x.end,label:attendanceStatusMeta(attendanceStatusFromLeave(x)).label,location:'',note:`${x.type} · İzin sisteminden`}))].sort((a,b)=>b.start.localeCompare(a.start)).map(x=>`<div class="quick-item"><div><strong>${x.label}${x.location ? ` · ${escapeHtml(x.location)}` : ''}</strong><span>${formatShortDate(x.start)} – ${formatShortDate(x.end)} · ${escapeHtml(x.note)}</span></div></div>`).join('') || '<div class="empty">Geçmiş kayıt bulunmuyor.</div>'}</div>`);
 }
 function renderAttendanceManagement() {
   if (!hasPermission('attendance.manage')) return goPage('dashboard');
@@ -672,11 +688,11 @@ function renderAttendanceManagement() {
   document.getElementById('pageContent').innerHTML=`
     <div class="attendance-toolbar"><div><span class="kitchen-eyebrow">İDARİ İŞLER · GÜNLÜK YOKLAMA</span><h2>${formatDayDate(date)}</h2><p>Personel varsayılan olarak Mevcut kabul edilir. Sadece istisnaları girmeniz yeterlidir.</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceDate(-1)">‹ Önceki Gün</button><button class="btn btn-secondary btn-sm" onclick="goTodayAttendance()">Bugün</button><input type="date" value="${date}" onchange="setAttendanceDate(this.value)"><button class="btn btn-primary btn-sm" onclick="changeAttendanceDate(1)">Sonraki Gün ›</button></div></div>
     <div class="grid grid-4 section-gap">${metric('👥','Toplam personel',stats.total+' kişi','Aktif üyeler')}${metric('✅','Mevcut',stats.present+' kişi','Varsayılan durum')}${metric('📌','Mevcut değil',stats.absent+' kişi','İzin, rapor, görev vb.')}${metric('📅','Onaylı izin',((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0))+' kişi','İzin sisteminden otomatik')}</div>
-    <div class="card section-gap"><div class="card-header"><div><h3>Personel durumları</h3><p>İzin sistemi otomatik; idari işler ayrıca personelin bulunduğu yeri (Yemekhane, Nizamiye vb.) kaydedebilir.</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Görev</th><th>Bugünkü durum</th><th>Bulunduğu yer</th><th>Kaynak</th><th>Açıklama</th><th>İşlem</th></tr></thead><tbody>${users.map(user=>{const a=attendanceForUserDate(user.id,date);return `<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button></td><td>${escapeHtml(user.title||'')}</td><td>${attendanceBadge(a.status)}</td><td><strong>${escapeHtml(a.location||'—')}</strong></td><td>${a.source==='leave'?'İzin sistemi':a.source==='manual'?'İdari işler':'Varsayılan'}</td><td>${escapeHtml(a.note||'—')}</td><td><button class="btn btn-primary btn-sm" onclick="attendanceEditModal(${user.id})">Düzenle</button>${a.source==='manual'?` <button class="btn btn-secondary btn-sm" onclick="clearManualAttendance(${user.id})">Kaydı Kaldır</button>`:''}</td></tr>`}).join('')}</tbody></table></div></div>`;
+    <div class="card section-gap"><div class="card-header"><div><h3>Personel durumları</h3><p>İzin sistemi otomatik; idari işler ayrıca personelin bulunduğu yeri (Yemekhane, Nizamiye vb.) kaydedebilir.</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Rütbe / Görev</th><th>Bugünkü durum</th><th>Bulunduğu yer</th><th>Görev / Açıklama</th><th>Kaynak</th><th>Ek not</th><th>İşlem</th></tr></thead><tbody>${users.map(user=>{const a=attendanceForUserDate(user.id,date);return `<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button></td><td>${escapeHtml(user.title||'')}</td><td>${attendanceBadge(a.status)}</td><td><strong>${escapeHtml(a.location||'—')}</strong></td><td>${escapeHtml(a.task||'—')}</td><td>${a.source==='leave'?'İzin sistemi':a.source==='manual'?'İdari işler':'Varsayılan'}</td><td>${escapeHtml(a.note||'—')}</td><td><button class="btn btn-primary btn-sm" onclick="attendanceEditModal(${user.id})">Düzenle</button>${a.source==='manual'?` <button class="btn btn-secondary btn-sm" onclick="clearManualAttendance(${user.id})">Kaydı Kaldır</button>`:''}</td></tr>`}).join('')}</tbody></table></div></div>`;
 }
 function attendanceGroupHtml(date) {
   const groups={}; approvedUsers().forEach(u=>{const a=attendanceForUserDate(u.id,date); (groups[a.status] ||= []).push({user:u, attendance:a});});
-  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key,meta])=>`<div class="attendance-group"><div>${attendanceBadge(key)}<strong>${groups[key].length} kişi</strong></div><p>${groups[key].map(x=>`${escapeHtml(x.user.name)}${x.attendance.location ? ` <small>(${escapeHtml(x.attendance.location)})</small>` : ''}`).join(', ')}</p></div>`).join('');
+  return Object.entries(attendanceStatuses).filter(([key])=>groups[key]?.length).map(([key,meta])=>`<div class="attendance-group"><div>${attendanceBadge(key)}<strong>${groups[key].length} kişi</strong></div><p>${groups[key].map(x=>`${escapeHtml(x.user.name)}${x.attendance.location ? ` <small>(${escapeHtml(x.attendance.location)})</small>` : ''}${x.attendance.task ? ` <small>— ${escapeHtml(x.attendance.task)}</small>` : ''}`).join(', ')}</p></div>`).join('');
 }
 function attendanceLocationHtml(date) {
   const groups = {};
@@ -698,7 +714,7 @@ function renderAttendanceOverview() {
     <div class="grid grid-4 section-gap">${metric('👥','Toplam',stats.total+' kişi','Aktif personel')}${metric('✅','Mevcut',stats.present+' kişi',stats.total?('%'+Math.round(stats.present/stats.total*100)+' mevcudiyet'):'—')}${metric('🏖️','İzinli',((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0))+' kişi','Onaylı izinler')}${metric('📍','Diğer durumda',(stats.absent-((stats.annual_leave||0)+(stats.excuse_leave||0)+(stats.road_leave||0)))+' kişi','Rapor, görev, kurs vb.')}</div>
     <div class="card section-gap"><div class="card-header"><div><h3>Bugünkü detay</h3><p>Durumlara göre isim listesi; girilmişse bulunduğu yer parantez içinde gösterilir.</p></div></div><div class="card-body attendance-groups">${attendanceGroupHtml(date)}</div></div>
     <div class="card section-gap"><div class="card-header"><div><h3>Bulunduğu yere göre dağılım</h3><p>Yemekhane, Nizamiye ve el ile girilen diğer görev yerleri</p></div></div><div class="card-body attendance-groups">${attendanceLocationHtml(date)}</div></div>
-    <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div><div class="table-wrap"><table class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${approvedUsers().map(user=>`<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d);return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+    <div class="card section-gap"><div class="card-header calendar-toolbar"><div><h3>Haftalık yoklama</h3><p>${weekRangeText(attendanceWeekCursor)}</p></div><div class="calendar-actions"><button class="btn btn-secondary btn-sm" onclick="changeAttendanceWeek(-1)">‹ Önceki Hafta</button><button class="btn btn-secondary btn-sm" onclick="attendanceWeekCursor=startOfWeek(new Date());renderAttendanceOverview()">Bu Hafta</button><button class="btn btn-primary btn-sm" onclick="changeAttendanceWeek(1)">Sonraki Hafta ›</button></div></div><div class="table-wrap"><table class="attendance-week-table"><thead><tr><th>Personel</th>${week.map(d=>`<th>${new Intl.DateTimeFormat('tr-TR',{weekday:'short'}).format(parseISO(d))}<small>${formatShortDate(d).slice(0,5)}</small></th>`).join('')}</tr></thead><tbody>${approvedUsers().map(user=>`<tr><td><button class="person-link" onclick="openAttendanceHistory(${user.id})">${escapeHtml(user.name)}</button><small class="table-sub">${escapeHtml(user.title||'')}</small></td>${week.map(d=>{const a=attendanceForUserDate(user.id,d);return `<td title="${escapeHtml(a.location || attendanceStatusMeta(a.status).label)}">${attendanceBadge(a.status,true)}${a.location ? `<small class="attendance-location-mini">${escapeHtml(a.location)}</small>` : ''}${a.task ? `<small class="attendance-task-mini">${escapeHtml(a.task)}</small>` : ''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function getWeekDates(cursor) { return Array.from({ length: 7 }, (_, i) => toISO(addDays(startOfWeek(cursor), i))); }
@@ -819,8 +835,63 @@ function mealStatusChip(status) {
 function expenseModal() {
   if (!hasPermission('meal.manage')) return;
   showModal('Yeni Gider Ekle', `<form id="expenseForm" class="form-grid"><label>Tarih<input name="date" type="date" value="${toISO(new Date())}" required></label><label>Tutar<input name="amount" type="number" step="0.01" required></label><label class="span-2">Açıklama<input name="name" required></label><div class="span-2"><button class="btn btn-primary btn-block">Gideri Kaydet</button></div></form>`);
-  document.getElementById('expenseForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.target); db.expenses.push({ id: Date.now(), date: f.get('date'), name: f.get('name'), amount: Number(f.get('amount')) }); saveDB(); closeModal(); renderMealManagement(); toast('Gider kaydı eklendi.'); });
+  document.getElementById('expenseForm').addEventListener('submit', e => { e.preventDefault(); const f = new FormData(e.target); db.expenses.push({ id: Date.now(), date: f.get('date'), name: f.get('name'), amount: Number(f.get('amount')) }); logAudit('expense.create', `${f.get('date')} · ${f.get('name')} · ${money(Number(f.get('amount')))}`); saveDB(); closeModal(); currentPage === 'finance-management' ? renderFinanceManagement() : renderMealManagement(); toast('Gider kaydı eklendi.'); });
 }
+
+function editExpenseModal(id) {
+  if (!hasPermission('finance.manage') && !hasPermission('meal.manage')) return;
+  const x = db.expenses.find(e => e.id === Number(id)); if (!x) return;
+  showModal('Malzeme / Gider Düzenle', `<form id="editExpenseForm" class="form-grid">
+    <label>Tarih<input name="date" type="date" value="${x.date}" required></label>
+    <label>Tutar<input name="amount" type="number" step="0.01" min="0" value="${Number(x.amount || 0)}" required></label>
+    <label class="span-2">Malzeme / Açıklama<input name="name" value="${escapeHtml(x.name || '')}" required></label>
+    <div class="span-2"><button class="btn btn-primary btn-block">Değişiklikleri Kaydet</button></div>
+  </form>`);
+  document.getElementById('editExpenseForm').addEventListener('submit', e => {
+    e.preventDefault(); const f = new FormData(e.target);
+    const before = { date: x.date, name: x.name, amount: x.amount };
+    const oldPeriod = String(x.date).slice(0,7);
+    x.date = f.get('date'); x.name = String(f.get('name') || '').trim(); x.amount = Number(f.get('amount') || 0);
+    const newPeriod = String(x.date).slice(0,7);
+    logAudit('expense.update', `${before.date} · ${before.name} · ${money(before.amount)} → ${x.date} · ${x.name} · ${money(x.amount)}`);
+    recalculateExistingPeriodDebts(oldPeriod);
+    if (newPeriod !== oldPeriod) recalculateExistingPeriodDebts(newPeriod);
+    saveDB(); closeModal(); renderFinanceManagement(); toast('Gider kaydı güncellendi; mevcut dönem borçları yeniden hesaplandı.');
+  });
+}
+function deleteExpense(id) {
+  if (!hasPermission('finance.manage') && !hasPermission('meal.manage')) return;
+  const x = db.expenses.find(e => e.id === Number(id)); if (!x) return;
+  if (!confirm(`${x.name} gider kaydı silinsin mi?`)) return;
+  const period = String(x.date).slice(0,7);
+  db.expenses = db.expenses.filter(e => e.id !== Number(id));
+  logAudit('expense.delete', `${x.date} · ${x.name} · ${money(x.amount)} silindi`);
+  recalculateExistingPeriodDebts(period);
+  saveDB(); renderFinanceManagement(); toast('Gider kaydı silindi; mevcut dönem borçları yeniden hesaplandı.');
+}
+function periodLabelFromKey(period) {
+  const [y,m] = period.split('-').map(Number);
+  return new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(y,m-1,1));
+}
+function balanceRowsForPeriod(period) {
+  const [py,pm] = period.split('-').map(Number), lastDay = new Date(py,pm,0).getDate();
+  const start = `${py}-${pad(pm)}-01`, end = `${py}-${pad(pm)}-${pad(lastDay)}`;
+  const totalExpense = db.expenses.filter(x=>x.date>=start&&x.date<=end).reduce((a,x)=>a+Number(x.amount||0),0);
+  const rows = approvedUsers().map(user=>{let count=0;dateRange(start,end).forEach(date=>['breakfast','lunch','dinner'].forEach(meal=>{if(['yes','duty'].includes(effectiveMealStatus(user.id,date,meal)))count++;}));return{user,count};});
+  const totalMeals = rows.reduce((a,x)=>a+x.count,0), unit = totalMeals ? totalExpense / totalMeals : 0;
+  return { start, end, totalExpense, rows, totalMeals, unit, label: periodLabelFromKey(period) };
+}
+function recalculateExistingPeriodDebts(period) {
+  if (!period) return;
+  const calc = balanceRowsForPeriod(period);
+  if (!db.debts.some(d => d.period === calc.label)) return;
+  calc.rows.forEach(x => {
+    const amount = Number((x.count * calc.unit).toFixed(2));
+    const d = db.debts.find(d => d.userId === x.user.id && d.period === calc.label);
+    if (d) d.amount = amount;
+  });
+}
+
 
 
 function getMealStatusGroups(date, meal) {
@@ -894,10 +965,29 @@ function renderMyFinance() {
   const debts = db.debts.filter(x => x.userId === currentUser.id);
   document.getElementById('pageContent').innerHTML = `
     <div class="grid grid-3">${metric('₺', 'Toplam borç', money(debts.reduce((s, x) => s + x.amount, 0)), 'Dönem borçları')}${metric('✅', 'Ödenen', money(debts.reduce((s, x) => s + x.paid, 0)), 'Onaylanan ödemeler')}${metric('⏳', 'Kalan', money(debts.reduce((s, x) => s + Math.max(0, x.amount - x.paid), 0)), 'Ödeme bekleniyor')}</div>
-    <div class="grid grid-2 section-gap"><div class="card"><div class="card-header"><div><h3>Ödeme bilgileri</h3><p>Havale açıklamasına ad soyad yazınız</p></div></div><div class="card-body"><label>Hesap sahibi<input value="${escapeHtml(db.settings.accountName)}" readonly></label><label class="section-gap">IBAN<input id="ibanInput" value="${escapeHtml(db.settings.iban)}" readonly></label><button class="btn btn-secondary section-gap" onclick="copyIban()">IBAN'ı Kopyala</button></div></div>
+    <div class="grid grid-2 section-gap"><div class="card"><div class="card-header"><div><h3>Ödeme bilgileri</h3><p>Havale açıklamasına ad soyad yazınız</p></div></div><div class="card-body">${db.settings.bankName ? `<label>Banka<input value="${escapeHtml(db.settings.bankName)}" readonly></label>` : ''}<label class="${db.settings.bankName ? 'section-gap' : ''}">Hesap sahibi<input value="${escapeHtml(db.settings.accountName)}" readonly></label><label class="section-gap">IBAN<input id="ibanInput" value="${escapeHtml(db.settings.iban)}" readonly></label><button class="btn btn-secondary section-gap" onclick="copyIban()">IBAN'ı Kopyala</button></div></div>
     <div class="card"><div class="card-header"><div><h3>Ödeme bildirimi</h3><p>Yaptığınız ödemeyi yönetime gönderin</p></div></div><div class="card-body"><button class="btn btn-primary" onclick="paymentModal()">Ödeme Bildir</button></div></div></div>
     <div class="card section-gap"><div class="card-header"><div><h3>Borç dökümü</h3><p>Dönem bazında ödeme durumunuz</p></div></div><div class="table-wrap"><table><thead><tr><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th><th>Durum</th></tr></thead><tbody>${debts.map(x => `<tr><td>${x.period}</td><td>${money(x.amount)}</td><td>${money(x.paid)}</td><td><strong>${money(Math.max(0, x.amount - x.paid))}</strong></td><td>${statusBadge(x.paid >= x.amount ? 'paid' : 'unpaid')}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
+function paymentInfoModal() {
+  if (!hasPermission('finance.manage')) return;
+  showModal('Ödeme / IBAN Bilgilerini Düzenle', `<form id="paymentInfoForm" class="form-grid">
+    <label class="span-2">Banka adı<input name="bankName" value="${escapeHtml(db.settings.bankName || '')}" placeholder="Örn. Ziraat Bankası"></label>
+    <label class="span-2">Hesap sahibi<input name="accountName" value="${escapeHtml(db.settings.accountName || '')}" required></label>
+    <label class="span-2">IBAN<input name="iban" value="${escapeHtml(db.settings.iban || '')}" required></label>
+    <div class="span-2"><button class="btn btn-primary btn-block">Ödeme Bilgilerini Kaydet</button></div>
+  </form>`);
+  document.getElementById('paymentInfoForm').addEventListener('submit', e => {
+    e.preventDefault(); const f = new FormData(e.target);
+    const before = `${db.settings.bankName || ''} | ${db.settings.accountName || ''} | ${db.settings.iban || ''}`;
+    db.settings.bankName = String(f.get('bankName') || '').trim();
+    db.settings.accountName = String(f.get('accountName') || '').trim();
+    db.settings.iban = String(f.get('iban') || '').trim();
+    logAudit('finance.payment_info', `Ödeme bilgileri güncellendi: ${before} → ${db.settings.bankName} | ${db.settings.accountName} | ${db.settings.iban}`);
+    saveDB(); closeModal(); renderFinanceManagement(); toast('IBAN ve hesap bilgileri güncellendi.');
+  });
+}
+
 function renderFinanceManagement() {
   if (!hasPermission('finance.manage')) return goPage('dashboard');
   const now = new Date();
@@ -919,7 +1009,7 @@ function renderFinanceManagement() {
   const periodLabel=new Intl.DateTimeFormat('tr-TR',{month:'long',year:'numeric'}).format(new Date(py,pm-1,1));
   const existingDebts=db.debts.filter(x=>x.period===periodLabel);
   document.getElementById('pageContent').innerHTML=`
-    <div class="card"><div class="card-header calendar-toolbar"><div><h3>Tabldot Bilanço · ${periodLabel}</h3><p>Malzeme giderleri ücretli öğünlere dağıtılır. Tercih yapmayan personel varsayılan olarak yemek yiyecek kabul edilir.</p></div><div class="calendar-actions"><input id="balancePeriodInput" type="month" value="${period}" onchange="setBalancePeriod(this.value)"><button class="btn btn-secondary btn-sm" onclick="expenseModal()">Malzeme / Gider Ekle</button><button class="btn btn-primary btn-sm" onclick="calculateBalanceDebts()">Borçları Hesapla</button><button class="btn btn-secondary btn-sm" onclick="printBalance()">PDF / Yazdır</button></div></div></div>
+    <div class="card"><div class="card-header calendar-toolbar"><div><h3>Tabldot Bilanço · ${periodLabel}</h3><p>Malzeme giderleri ücretli öğünlere dağıtılır. Tercih yapmayan personel varsayılan olarak yemek yiyecek kabul edilir.</p></div><div class="calendar-actions"><input id="balancePeriodInput" type="month" value="${period}" onchange="setBalancePeriod(this.value)"><button class="btn btn-secondary btn-sm" onclick="paymentInfoModal()">IBAN / Hesap</button><button class="btn btn-secondary btn-sm" onclick="expenseModal()">Malzeme / Gider Ekle</button><button class="btn btn-primary btn-sm" onclick="calculateBalanceDebts()">Borçları Hesapla</button><button class="btn btn-secondary btn-sm" onclick="printBalance()">PDF / Yazdır</button></div></div></div>
     <div class="grid grid-4 section-gap">
       ${metric('🧾','Toplam malzeme gideri',money(totalExpense),periodExpenses.length+' kalem')}
       ${metric('🍽','Toplam ücretli öğün',totalMeals,'Yıllık izin düşümleri hariç')}
@@ -927,7 +1017,7 @@ function renderFinanceManagement() {
       ${metric('👥','Borçlandırılacak personel',personMeals.filter(x=>x.count>0).length+' kişi','Öğün kullanan personel')}
     </div>
     <div class="grid grid-2 section-gap">
-      <div class="card"><div class="card-header"><div><h3>Alınan malzemeler / giderler</h3><p>${formatShortDate(start)} – ${formatShortDate(end)}</p></div></div><div class="table-wrap"><table><thead><tr><th>Tarih</th><th>Malzeme / Açıklama</th><th>Tutar</th></tr></thead><tbody>${periodExpenses.map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td><strong>${money(x.amount)}</strong></td></tr>`).join('')||'<tr><td colspan="3">Bu dönemde gider kaydı yok.</td></tr>'}</tbody></table></div></div>
+      <div class="card"><div class="card-header"><div><h3>Alınan malzemeler / giderler</h3><p>${formatShortDate(start)} – ${formatShortDate(end)}</p></div></div><div class="table-wrap"><table><thead><tr><th>Tarih</th><th>Malzeme / Açıklama</th><th>Tutar</th><th>İşlem</th></tr></thead><tbody>${periodExpenses.map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td><strong>${money(x.amount)}</strong></td><td><button class="btn btn-secondary btn-sm" onclick="editExpenseModal(${x.id})">Düzenle</button> <button class="btn btn-danger btn-sm" onclick="deleteExpense(${x.id})">Sil</button></td></tr>`).join('')||'<tr><td colspan="4">Bu dönemde gider kaydı yok.</td></tr>'}</tbody></table></div></div>
       <div class="card"><div class="card-header"><div><h3>Personel tabldot hesabı</h3><p>Kişi borcu = ücretli öğün × birim maliyet</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Öğün</th><th>Hesaplanan tutar</th><th>Kayıtlı borç</th></tr></thead><tbody>${personMeals.map(x=>{const d=existingDebts.find(d=>d.userId===x.user.id);return `<tr><td>${escapeHtml(x.user.name)}</td><td>${x.count}</td><td>${money(x.count*unit)}</td><td>${d?money(d.amount):'—'}</td></tr>`}).join('')}</tbody></table></div></div>
     </div>
     <div class="card section-gap"><div class="card-header"><div><h3>Ödeme ve tahsilat</h3><p>Onaylanan ödemeler ve dönem borçları</p></div></div><div class="table-wrap"><table><thead><tr><th>Personel</th><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th><th>Durum</th></tr></thead><tbody>${db.debts.filter(x=>x.period===periodLabel).map(x=>`<tr><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>${escapeHtml(x.period)}</td><td>${money(x.amount)}</td><td>${money(x.paid)}</td><td>${money(Math.max(0,x.amount-x.paid))}</td><td>${statusBadge(x.paid>=x.amount?'paid':'unpaid')}</td></tr>`).join('')||'<tr><td colspan="6">Bu dönem borçları henüz hesaplanmadı.</td></tr>'}</tbody></table></div></div>`;
@@ -1000,15 +1090,19 @@ function renderLeaveManagement() {
 function canEditOwnLeave(request) {
   return !!request && request.userId === currentUser?.id && request.status === 'pending';
 }
+function canDeleteOwnLeave(request) {
+  return !!request && request.userId === currentUser?.id && ['pending','rejected'].includes(request.status);
+}
 function leaveTable(items, actions, compact = false) {
-  const hasOwnEditable = items.some(canEditOwnLeave);
+  const hasOwnEditable = items.some(x => canEditOwnLeave(x) || canDeleteOwnLeave(x));
   const showActionColumn = actions || hasOwnEditable;
   return `<div class="table-wrap"><table><thead><tr><th>Personel</th><th>İzin türü</th><th>Başlangıç</th><th>Bitiş</th><th>Gün</th>${compact ? '' : '<th>Şehir</th>'}<th>Durum</th>${showActionColumn ? '<th>İşlem</th>' : ''}</tr></thead><tbody>${items.map(x => {
-    const ownEdit = canEditOwnLeave(x) ? `<button class="btn btn-secondary btn-sm" onclick="leaveModal(false, ${x.id})">Düzenle</button>` : '';
+    const ownEdit = `${canEditOwnLeave(x) ? `<button class="btn btn-secondary btn-sm" onclick="leaveModal(false, ${x.id})">Düzenle</button>` : ''}${canDeleteOwnLeave(x) ? ` <button class="btn btn-danger btn-sm" onclick="deleteLeaveRequest(${x.id})">Sil / İptal Et</button>` : ''}`.trim();
+    const managerDelete = actions && hasPermission('leave.manage') ? `<button class="btn btn-danger btn-sm" onclick="deleteLeaveRequest(${x.id}, true)">Sil</button>` : '';
     const managementActions = actions && x.status === 'pending' && (hasPermission('leave.approve') || hasPermission('leave.manage'))
       ? `<button class="btn btn-success btn-sm" onclick="approveLeave(${x.id})">Onayla</button> <button class="btn btn-danger btn-sm" onclick="rejectLeave(${x.id})">Reddet</button>`
       : '';
-    const actionCell = [ownEdit, managementActions].filter(Boolean).join(' ') || '—';
+    const actionCell = [ownEdit, managementActions, managerDelete].filter(Boolean).join(' ') || '—';
     return `<tr><td>${(hasPermission('personnel.view') || hasPermission('leave.view')) ? `<button class="person-link" onclick="openPersonnelLeaves(${x.userId})">${escapeHtml(getUser(x.userId)?.name || '-')}</button>` : `<strong>${escapeHtml(getUser(x.userId)?.name || '-')}</strong>`}</td><td>${escapeHtml(x.type)}</td><td>${formatDate(x.start)}</td><td>${formatDate(x.end)}</td><td>${x.days}</td>${compact ? '' : `<td>${escapeHtml(x.city || '-')}</td>`}<td>${statusBadge(x.status)}</td>${showActionColumn ? `<td>${actionCell}</td>` : ''}</tr>`;
   }).join('')}</tbody></table></div>`;
 }
@@ -1075,6 +1169,22 @@ function leaveModal(asManager = false, editId = null) {
     saveDB(); closeModal(); asManager ? renderLeaveManagement() : renderMyLeaves(); toast(editing ? 'İzin talebiniz güncellendi.' : (asManager ? 'İzin kaydı eklendi ve bakiye güncellendi.' : 'İzin talebiniz onaya gönderildi.'));
   });
 }
+function deleteLeaveRequest(id, asManager = false) {
+  const x = db.leaveRequests.find(r => r.id === Number(id));
+  if (!x) return;
+  const ownAllowed = x.userId === currentUser?.id && ['pending','rejected'].includes(x.status);
+  const managerAllowed = asManager && hasPermission('leave.manage');
+  if (!ownAllowed && !managerAllowed) return toast('Bu izin kaydını silme yetkiniz yok.');
+  if (x.status === 'approved' && !managerAllowed) return toast('Onaylanmış izin personel tarafından silinemez.');
+  const userName = getUser(x.userId)?.name || 'Personel';
+  if (!confirm(`${userName} için ${formatShortDate(x.start)} - ${formatShortDate(x.end)} izin kaydı silinsin mi?`)) return;
+  db.leaveRequests = db.leaveRequests.filter(r => r.id !== Number(id));
+  logAudit('leave.delete', `${userName}: ${x.type} ${x.start} - ${x.end} (${x.status}) silindi`);
+  saveDB();
+  if (currentPage === 'leave-management') renderLeaveManagement(); else renderMyLeaves();
+  toast('İzin kaydı silindi.');
+}
+
 function approveLeave(id) {
   if (!hasPermission('leave.approve') && !hasPermission('leave.manage')) return;
   const x=db.leaveRequests.find(r=>r.id===id); if(!x)return;
@@ -1219,6 +1329,22 @@ function announceLeavePlan() {
   });
   saveDB();renderLeavePlanning();toast('Yıllık izin planlama sonuçları personele açıklandı.');
 }
+function machineStatusModal(machine) {
+  if (!isAdmin()) return toast('Cihaz durumunu yalnızca Admin değiştirebilir.');
+  const current = db.settings.laundryMachineStatus?.[machine] || 'active';
+  showModal(`${machine} · Cihaz Durumu`, `<form id="machineStatusForm">
+    <label>Durum<select name="status"><option value="active" ${current==='active'?'selected':''}>Aktif</option><option value="broken" ${current==='broken'?'selected':''}>Arızalı</option><option value="maintenance" ${current==='maintenance'?'selected':''}>Bakımda</option></select></label>
+    <button class="btn btn-primary btn-block section-gap">Durumu Kaydet</button>
+  </form>`);
+  document.getElementById('machineStatusForm').addEventListener('submit', e => {
+    e.preventDefault(); const next = new FormData(e.target).get('status');
+    const before = db.settings.laundryMachineStatus[machine] || 'active';
+    db.settings.laundryMachineStatus[machine] = next;
+    logAudit('laundry.machine_status', `${machine}: ${before} → ${next}`);
+    saveDB(); closeModal(); renderLaundry(); toast(`${machine} durumu güncellendi.`);
+  });
+}
+
 function renderLaundry() {
   const date=toISO(new Date()), times=['09:00','10:30','12:00','13:30','15:00','16:30','18:00','19:30','21:00'];
   const machines=['Beyaz Çamaşır Makinesi','Gri Çamaşır Makinesi','Kurutma Makinesi'];
@@ -1226,6 +1352,7 @@ function renderLaundry() {
   const statusLabel=s=>s==='broken'?'Arızalı':s==='maintenance'?'Bakımda':'Aktif';
   document.getElementById('pageContent').innerHTML=`
     <div class="grid grid-4">${metric('🧺','Bugünkü randevu',db.laundry.filter(x=>x.date===date).length,'Tüm makineler')}${metric('✅','Beyaz Makine',statusLabel(db.settings.laundryMachineStatus['Beyaz Çamaşır Makinesi']),'Durum')}${metric('✅','Gri Makine',statusLabel(db.settings.laundryMachineStatus['Gri Çamaşır Makinesi']),'Durum')}${metric('🛠','Kurutma Makinesi',statusLabel(db.settings.laundryMachineStatus['Kurutma Makinesi']),'Arızalı cihazlara randevu alınamaz')}</div>
+    ${isAdmin()?`<div class="card section-gap"><div class="card-header"><div><h3>Cihaz durum yönetimi</h3><p>Onarım/bakım sonrasında cihazı yeniden Aktif duruma alabilirsiniz.</p></div></div><div class="card-body machine-status-actions">${machines.map(m=>`<button class="btn btn-secondary" onclick="machineStatusModal('${m}')">${m}: ${statusLabel(db.settings.laundryMachineStatus[m])}</button>`).join('')}</div></div>`:''}
     <div class="card section-gap"><div class="card-header"><div><h3>Çamaşır randevusu</h3><p>Arızalı veya bakımda olan cihazlara randevu oluşturulamaz.</p></div><button class="btn btn-warning btn-sm" onclick="faultModal()">Arıza Kaydı Oluştur</button></div><div class="card-body"><div class="laundry-board">
       <div class="head">Saat</div>${machines.map(m=>`<div class="head">${m}<small>${statusLabel(db.settings.laundryMachineStatus[m])}</small></div>`).join('')}
       ${times.map(time=>`<div><strong>${time}</strong></div>${machines.map(machine=>{const booking=db.laundry.find(x=>x.date===date&&x.time===time&&x.machine===machine);const active=db.settings.laundryMachineStatus[machine]==='active';return booking?`<div class="slot busy"><strong>${escapeHtml(getUser(booking.userId)?.name||'-')}</strong>${hasPermission('laundry.manage')||booking.userId===currentUser.id?`<button class="btn btn-danger btn-sm" onclick="cancelLaundry(${booking.id})">İptal</button>`:'Rezerve'}</div>`:active?`<div class="slot free" onclick="bookLaundry('${date}','${time}','${machine}')">+ Randevu Al</div>`:`<div class="slot broken">🛠 ${statusLabel(db.settings.laundryMachineStatus[machine])}</div>`}).join('')}`).join('')}
@@ -1257,24 +1384,92 @@ function bookLaundry(date, time, machine) {
 }
 function cancelLaundry(id) { const booking = db.laundry.find(x => x.id === id); if (!booking || (!hasPermission('laundry.manage') && booking.userId !== currentUser.id)) return; db.laundry = db.laundry.filter(x => x.id !== id); saveDB(); renderLaundry(); toast('Randevu iptal edildi.'); }
 
+function canViewReport(type) {
+  if (isAdmin()) return true;
+  if (type === 'meal') return hasPermission('meal.manage') || hasPermission('kitchen.view');
+  if (type === 'finance' || type === 'balance') return hasPermission('finance.manage');
+  if (type === 'leave') return hasPermission('leave.view');
+  if (type === 'planning') return hasPermission('leave.plan');
+  if (type === 'laundry') return hasPermission('laundry.manage');
+  return false;
+}
 function renderReports() {
   if (!hasPermission('reports.view')) return goPage('dashboard');
-  document.getElementById('pageContent').innerHTML = `<div class="grid grid-3">
-    <div class="card"><div class="card-body">${reportCard('🍽', 'Yemek Katılım Raporu', 'Tarih ve öğün bazında katılım dökümü')}</div></div>
-    <div class="card"><div class="card-body">${reportCard('₺', 'Borç ve Tahsilat Raporu', 'Dönemsel borç, ödeme ve bakiye özeti')}</div></div>
-    <div class="card"><div class="card-body">${reportCard('📅', 'Yıllık İzin Raporu', 'Personel bazında kullanılan ve kalan izinler')}</div></div>
-    <div class="card"><div class="card-body">${reportCard('⭐', 'İzin Planlama Raporu', 'Tercih, puan ve dağıtım sonuçları')}</div></div>
-    <div class="card"><div class="card-body">${reportCard('🧺', 'Çamaşır Kullanım Raporu', 'Makine ve personel bazında kullanım')}</div></div>
-    <div class="card"><div class="card-body">${reportCard('📊', 'Aylık Bilanço', 'Gelir, gider, tahsilat ve kasa durumu')}</div></div>
-  </div>`;
+  const cards = [
+    ['meal','🍽','Yemek Katılım Raporu','Tarih ve öğün bazında katılım dökümü'],
+    ['finance','₺','Borç ve Tahsilat Raporu','Dönemsel borç, ödeme ve bakiye özeti'],
+    ['leave','📅','Yıllık İzin Raporu','Personel bazında kullanılan ve kalan izinler'],
+    ['planning','⭐','İzin Planlama Raporu','Tercih, yönetim puanı ve dağıtım sonuçları'],
+    ['laundry','🧺','Çamaşır Kullanım Raporu','Makine, randevu ve arıza kayıtları'],
+    ['balance','📊','Aylık Bilanço','Malzeme, öğün maliyeti ve personel borçları']
+  ].filter(x=>canViewReport(x[0]));
+  document.getElementById('pageContent').innerHTML = cards.length
+    ? `<div class="grid grid-3">${cards.map(x=>`<div class="card"><div class="card-body">${reportCard(...x)}</div></div>`).join('')}</div>`
+    : '<div class="empty">Rolünüz için tanımlı rapor bulunmuyor.</div>';
 }
-function reportCard(icon, title, desc) { return `<div class="metric-icon">${icon}</div><h3>${title}</h3><p class="form-note">${desc}</p><div class="section-gap"><button class="btn btn-primary btn-sm" onclick="downloadCsv('${title}')">Excel/CSV İndir</button> <button class="btn btn-secondary btn-sm" onclick="toast('PDF raporu gerçek veritabanı aşamasında eklenecek.')">PDF</button></div>`; }
-function downloadCsv(title) { const csv = 'Rapor;Tarih;Deger\n' + title + ';' + toISO(new Date()) + ';Demo rapor\n'; const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replaceAll(' ', '_') + '.csv'; a.click(); URL.revokeObjectURL(a.href); toast('Rapor indirildi.'); }
+
+function reportCard(type, icon, title, desc) {
+  return `<div class="metric-icon">${icon}</div><h3>${title}</h3><p class="form-note">${desc}</p><div class="section-gap report-actions"><button class="btn btn-primary btn-sm" onclick="downloadCsv('${title}')">Excel/CSV İndir</button> <button class="btn btn-secondary btn-sm" onclick="openReportPreview('${type}')">PDF Önizle</button></div>`;
+}
+function reportPeriodKey() { return db.settings.balancePeriod || `${new Date().getFullYear()}-${pad(new Date().getMonth()+1)}`; }
+function reportHtml(type) {
+  const generated = new Date().toLocaleString('tr-TR');
+  const head = title => `<div class="report-head"><div><h1>PBYS</h1><p>Personel Bilgi Yönetim Sistemi</p></div><div><strong>${title}</strong><span>Oluşturma: ${generated}</span></div></div>`;
+  if (type === 'meal') {
+    const period = reportPeriodKey(), [y,m] = period.split('-').map(Number), last = new Date(y,m,0).getDate();
+    const rows = Array.from({length:last},(_,i)=>`${y}-${pad(m)}-${pad(i+1)}`).map(date=>{const x=mealDateSummary(date);return `<tr><td>${formatDayDate(date)}</td><td>${x.breakfast}</td><td>${x.lunch}</td><td>${x.dinner}</td><td>${x.duty}</td><td>${x.no}</td><td>${x.leave}</td></tr>`}).join('');
+    return `${head('Yemek Katılım Raporu')}<table><thead><tr><th>Tarih</th><th>Kahvaltı</th><th>Öğle</th><th>Akşam</th><th>Görev/Ayır</th><th>Yemeyecek</th><th>İzin</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  if (type === 'finance') {
+    const rows = db.debts.map(d=>`<tr><td>${escapeHtml(getUser(d.userId)?.name||'-')}</td><td>${escapeHtml(d.period)}</td><td>${money(d.amount)}</td><td>${money(d.paid)}</td><td>${money(Math.max(0,d.amount-d.paid))}</td></tr>`).join('');
+    return `${head('Borç ve Tahsilat Raporu')}<table><thead><tr><th>Personel</th><th>Dönem</th><th>Borç</th><th>Ödenen</th><th>Kalan</th></tr></thead><tbody>${rows||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
+  }
+  if (type === 'leave') {
+    const rows = approvedUsers().map(u=>`<tr><td>${escapeHtml(u.name)}</td><td>${u.annualAllowance??30}</td><td>${Number(u.usedLeave||0)+getApprovedAnnualDays(u.id,false)}</td><td>${getRemainingLeave(u)}</td><td>${u.roadAllowance??2}</td><td>${getRoadRemaining(u)}</td></tr>`).join('');
+    return `${head('Yıllık İzin Raporu')}<table><thead><tr><th>Personel</th><th>Yıllık Hak</th><th>Kullanılan</th><th>Kalan</th><th>Yol Hak</th><th>Yol Kalan</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  if (type === 'planning') {
+    const year=db.settings.leavePlanYear;
+    const rows=planningUsers().map(u=>{const p=db.leavePreferences.find(x=>x.userId===u.id&&x.year===year);const r=db.leavePlanResults.find(x=>x.userId===u.id&&x.year===year);return `<tr><td>${escapeHtml(u.name)}</td><td>${u.planningScore??0}</td><td>${p?`${formatShortDate(p.firstStart)} - ${formatShortDate(p.firstEnd)}`:'—'}</td><td>${p?`${formatShortDate(p.secondStart)} - ${formatShortDate(p.secondEnd)}`:'—'}</td><td>${r?(r.choice?`${r.choice}. tercih`:'Tekrar tercih'):'—'}</td></tr>`}).join('');
+    return `${head(`${year} İzin Planlama Raporu`)}<table><thead><tr><th>Personel</th><th>İç Puan</th><th>1. Tercih</th><th>2. Tercih</th><th>Karar</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  if (type === 'laundry') {
+    const bookings=db.laundry.slice().sort((a,b)=>`${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)).map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${x.time}</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>Randevu</td></tr>`);
+    const faults=(db.laundryFaults||[]).map(x=>`<tr><td>${new Date(x.createdAt).toLocaleDateString('tr-TR')}</td><td>—</td><td>${escapeHtml(x.machine)}</td><td>${escapeHtml(getUser(x.userId)?.name||'-')}</td><td>Arıza: ${escapeHtml(x.status)}</td></tr>`);
+    return `${head('Çamaşır Kullanım / Arıza Raporu')}<table><thead><tr><th>Tarih</th><th>Saat</th><th>Cihaz</th><th>Personel</th><th>İşlem</th></tr></thead><tbody>${[...bookings,...faults].join('')||'<tr><td colspan="5">Kayıt yok.</td></tr>'}</tbody></table>`;
+  }
+  const calc=balanceRowsForPeriod(reportPeriodKey());
+  const expenseRows=db.expenses.filter(x=>x.date>=calc.start&&x.date<=calc.end).map(x=>`<tr><td>${formatShortDate(x.date)}</td><td>${escapeHtml(x.name)}</td><td>${money(x.amount)}</td></tr>`).join('');
+  const personRows=calc.rows.map(x=>`<tr><td>${escapeHtml(x.user.name)}</td><td>${x.count}</td><td>${money(x.count*calc.unit)}</td></tr>`).join('');
+  return `${head(`Aylık Tabldot Bilançosu · ${calc.label}`)}<div class="report-summary"><span>Toplam gider: <strong>${money(calc.totalExpense)}</strong></span><span>Toplam ücretli öğün: <strong>${calc.totalMeals}</strong></span><span>Öğün birim maliyeti: <strong>${money(calc.unit)}</strong></span></div><h3>Giderler</h3><table><thead><tr><th>Tarih</th><th>Malzeme</th><th>Tutar</th></tr></thead><tbody>${expenseRows||'<tr><td colspan="3">Gider yok.</td></tr>'}</tbody></table><h3>Personel Hesabı</h3><table><thead><tr><th>Personel</th><th>Öğün</th><th>Tutar</th></tr></thead><tbody>${personRows}</tbody></table>`;
+}
+function openReportPreview(type) {
+  if (!hasPermission('reports.view') || !canViewReport(type)) return toast('Bu raporu görüntüleme yetkiniz yok.');
+  const titleMap={meal:'Yemek Katılım Raporu',finance:'Borç ve Tahsilat Raporu',leave:'Yıllık İzin Raporu',planning:'İzin Planlama Raporu',laundry:'Çamaşır Kullanım Raporu',balance:'Aylık Bilanço'};
+  showModal(`${titleMap[type] || 'Rapor'} · PDF Önizleme`, `<div class="pdf-preview" id="reportPreview">${reportHtml(type)}</div><div class="section-gap report-preview-actions"><button class="btn btn-primary" onclick="printReportPreview('${type}')">PDF / Yazdır</button></div>`);
+}
+function printReportPreview(type) {
+  const existing=document.getElementById('reportPrintArea'); if(existing) existing.remove();
+  const area=document.createElement('div'); area.id='reportPrintArea'; area.className='report-print-area'; area.innerHTML=reportHtml(type); document.body.appendChild(area);
+  document.body.classList.add('printing-report');
+  const cleanup=()=>{document.body.classList.remove('printing-report');area.remove();window.removeEventListener('afterprint',cleanup);};
+  window.addEventListener('afterprint',cleanup);
+  window.print();
+  setTimeout(()=>{if(document.body.classList.contains('printing-report'))cleanup();},30000);
+}
+function downloadCsv(title) {
+  let csv = 'Rapor;Tarih;Değer\n';
+  if (title.includes('Borç')) csv += db.debts.map(d=>`${getUser(d.userId)?.name||'-'};${d.period};${d.amount-d.paid}`).join('\n');
+  else if (title.includes('İzin')) csv += approvedUsers().map(u=>`${u.name};${toISO(new Date())};${getRemainingLeave(u)} gün kalan`).join('\n');
+  else csv += `${title};${toISO(new Date())};PBYS raporu`;
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replaceAll(' ', '_') + '.csv'; a.click(); URL.revokeObjectURL(a.href); toast('Rapor indirildi.');
+}
 
 function renderSettings() {
   if (!isAdmin()) return goPage('dashboard');
   document.getElementById('pageContent').innerHTML = `<div class="grid grid-2"><div class="card"><div class="card-header"><div><h3>PBYS sistem ayarları</h3><p>Ortak ayarlar Firestore settings/app belgesine yazılır.</p></div></div><div class="card-body"><form id="settingsForm">
     <label>Sistem adı<input name="systemName" value="${escapeHtml(db.settings.systemName || 'PBYS')}"></label>
+    <label class="section-gap">Banka adı<input name="bankName" value="${escapeHtml(db.settings.bankName || '')}"></label>
     <label class="section-gap">Hesap sahibi<input name="accountName" value="${escapeHtml(db.settings.accountName)}"></label>
     <label class="section-gap">IBAN<input name="iban" value="${escapeHtml(db.settings.iban)}"></label>
     <label class="section-gap">Haftalık çamaşır kullanım limiti<input name="weeklyLaundryLimit" type="number" min="1" value="${db.settings.weeklyLaundryLimit}"></label>
@@ -1285,7 +1480,7 @@ function renderSettings() {
     <div class="card"><div class="card-header"><div><h3>Firebase / Firestore</h3><p>Veriler site üzerinden yönetilir.</p></div></div><div class="card-body"><div class="firebase-card"><strong>Proje: ${escapeHtml(window.FirebaseBridge?.projectId || 'gencservi-5d47e')}</strong><span>Kullanıcı, yemek, izin, yoklama, ödeme, arıza ve çamaşır verileri Firestore koleksiyonlarında tutulur.</span><div class="sync-actions"><button class="btn btn-primary btn-sm" onclick="refreshFromCloud()">Buluttan Yenile</button><button class="btn btn-secondary btn-sm" onclick="exportBackup()">JSON Yedek İndir</button></div></div><p class="form-note section-gap">Test aşamasından sonra Firestore Security Rules rol/yetki sistemine göre kilitlenmelidir.</p></div></div></div>`;
   document.getElementById('settingsForm').addEventListener('submit', e => {
     e.preventDefault(); const f=new FormData(e.target);
-    db.settings={...db.settings,systemName:f.get('systemName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
+    db.settings={...db.settings,systemName:f.get('systemName'),bankName:f.get('bankName'),accountName:f.get('accountName'),iban:f.get('iban'),weeklyLaundryLimit:Number(f.get('weeklyLaundryLimit')),leavePlanYear:Number(f.get('leavePlanYear')),leaveConcurrentPercent:Number(f.get('leaveConcurrentPercent')),planningSecondChoiceBonus:Number(f.get('planningSecondChoiceBonus'))};
     saveDB();toast('Sistem ayarları kaydedildi.');
   });
 }

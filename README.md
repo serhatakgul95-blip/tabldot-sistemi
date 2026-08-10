@@ -1,8 +1,17 @@
-# PBYS V7 — Personel Bilgi Yönetim Sistemi
+# PBYS V8 — Personel Bilgi Yönetim Sistemi
 
 Bu test sürümü V6 Firestore altyapısı üzerine toplu kullanıcı geri bildirimlerini uygular.
 
 ## Bu sürümde
+- **Tabldot Sorumlusu** rolü: yemek yönetimi, bilanço ve tabldot raporları
+- Borç/ödeme bölümünde banka, hesap sahibi ve IBAN yönetimi
+- Bekleyen/reddedilen izin taleplerini personelin silip iptal edebilmesi; yetkili için kayıt silme
+- Yoklama Girişi/Yoklama Özeti açılmama hatası giderildi; durum sözlüğü tanımlandı
+- Yoklamada serbest metin **Görev / Açıklama** alanı (örn. Şehir merkezine çıkış yaptı)
+- Raporlar ekranında gerçek **PDF Önizleme** ve tarayıcıdan **PDF/Yazdır** desteği
+- Malzeme/gider kayıtlarını sonradan düzenleme ve silme; mevcut dönem borçlarını yeniden hesaplama
+- Admin için çamaşır makinelerini **Aktif / Arızalı / Bakımda** durumuna alma
+- Mobil yemek gün kartları daha belirgin başlık, çerçeve ve boşluklarla güncellendi
 - Giriş ve marka adı: **PBYS — Personel Bilgi Yönetim Sistemi**
 - Personel bilgi düzenleme, çoklu rol ve ek özel yetki yönetimi
 - Son admin rolünün yanlışlıkla kaldırılamaması

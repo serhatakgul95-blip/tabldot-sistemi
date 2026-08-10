@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS = {
   systemName: 'PBYS',
   iban: 'TR00 0000 0000 0000 0000 0000 00',
   accountName: 'Ortak Tabldot Hesabı',
+  bankName: '',
   weeklyLaundryLimit: 2,
   leavePlanYear: 2027,
   leaveConcurrentPercent: 25,
