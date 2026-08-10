@@ -203,8 +203,8 @@ async function bootFirebase() {
     firebaseBooted = true;
     setCloudStatus('', 'Firestore kontrol ediliyor');
     await window.FirebaseBridge.ensureSettings();
-    const hasUsers = await window.FirebaseBridge.hasAnyUsers();
-    document.getElementById('bootstrapBox').classList.toggle('hidden', hasUsers);
+    const hasAdmin = await window.FirebaseBridge.hasAnyAdmin();
+    document.getElementById('bootstrapBox').classList.toggle('hidden', hasAdmin);
     const authUser = await window.FirebaseBridge.waitForAuthState();
     if (authUser) {
       const profile = await window.FirebaseBridge.getUserProfile(authUser.uid);

@@ -1,6 +1,6 @@
-# GençServi / Personel Yaşam ve Tabldot Sistemi V6
+# GençServi / Personel Yaşam ve Tabldot Sistemi V6.1
 
-V6, V5 arayüzünü Firebase Authentication + Cloud Firestore ile merkezi hale getiren ilk gerçek veritabanı sürümüdür.
+V6.1, V5 arayüzünü Firebase Authentication + Cloud Firestore ile merkezi hale getiren ilk gerçek veritabanı sürümüdür.
 
 ## Bu sürümde
 
@@ -51,3 +51,8 @@ Firestore şu anda geliştirme/test aşamasındadır. Gerçek personel, izin, te
 ## İlk açılış
 
 Firestore `users` koleksiyonu boşsa giriş ekranında `İlk Admin Hesabını Oluştur` kutusu görünür. İlk admin oluşturulduktan sonra diğer personel `Kayıt Ol` ekranından başvuru yapabilir; admin `Personel Listesi` ekranından üyeliği onaylar ve rol atar.
+
+
+## V6.1 düzeltmesi
+- İlk admin butonu artık herhangi bir kullanıcıya değil, admin hesabının varlığına bakar.
+- Bir kullanıcı daha önce Kayıt Ol ekranından hesap açmışsa, aynı telefon ve şifreyle ilk admin olarak yükseltilebilir.

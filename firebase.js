@@ -102,6 +102,14 @@ async function hasAnyUsers() {
   return !snap.empty;
 }
 
+async function hasAnyAdmin() {
+  const snap = await getDocs(collection(firestore, 'users'));
+  return snap.docs.some(d => {
+    const data = d.data() || {};
+    return data.role === 'admin' || (Array.isArray(data.roles) && data.roles.includes('admin'));
+  });
+}
+
 async function getUserProfile(uid) {
   const snap = await getDoc(doc(firestore, 'users', uid));
   return snap.exists() ? { ...snap.data(), uid: snap.id } : null;
@@ -119,22 +127,34 @@ async function createProfile(uid, profile) {
 }
 
 async function bootstrapAdmin({ name, phone, title, password }) {
-  if (await hasAnyUsers()) throw new Error('Sistem daha önce başlatılmış. İlk admin kurulumu yalnızca boş sistemde yapılabilir.');
-  const cred = await createUserWithEmailAndPassword(auth, phoneToEmail(phone), password);
+  if (await hasAnyAdmin()) throw new Error('Sistemde zaten bir admin hesabı bulunuyor.');
+
+  let cred;
+  try {
+    cred = await createUserWithEmailAndPassword(auth, phoneToEmail(phone), password);
+  } catch (error) {
+    if (error?.code !== 'auth/email-already-in-use') throw error;
+    // Kullanıcı daha önce Kayıt Ol ekranından hesap açtıysa aynı telefon/şifreyle
+    // mevcut Authentication hesabını ilk admin olarak yükselt.
+    cred = await signInWithEmailAndPassword(auth, phoneToEmail(phone), password);
+  }
+
+  const existing = await getUserProfile(cred.user.uid);
   const profile = await createProfile(cred.user.uid, {
-    id: 1,
-    name,
+    ...(existing || {}),
+    id: existing?.id || 1,
+    name: name || existing?.name || 'Sistem Yöneticisi',
     phone,
-    title: title || 'Sistem Yöneticisi',
+    title: title || existing?.title || 'Sistem Yöneticisi',
     role: 'admin',
-    roles: ['staff', 'admin'],
-    extraPermissions: [],
+    roles: Array.from(new Set([...(existing?.roles || ['staff']), 'staff', 'admin'])),
+    extraPermissions: existing?.extraPermissions || [],
     approved: true,
     rejected: false,
-    annualAllowance: 30,
-    usedLeave: 0,
-    planningScore: 50,
-    planningScoreNote: ''
+    annualAllowance: existing?.annualAllowance ?? 30,
+    usedLeave: existing?.usedLeave ?? 0,
+    planningScore: existing?.planningScore ?? 50,
+    planningScoreNote: existing?.planningScoreNote || ''
   });
   await ensureSettings();
   return profile;
@@ -361,6 +381,7 @@ window.FirebaseBridge = {
   errorMessage: firebaseErrorMessage,
   ensureSettings,
   hasAnyUsers,
+  hasAnyAdmin,
   getUserProfile,
   bootstrapAdmin,
   registerPending,
